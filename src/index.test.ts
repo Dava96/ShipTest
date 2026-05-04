@@ -74,7 +74,7 @@ project:
   name: payments-api
   repo: repo
 repository_environment:
-  execution_mode: workload_container
+  commands_run_in: repository_environment
   source: dockerfile_target
   dockerfile_path: Dockerfile
   dockerfile_target: test

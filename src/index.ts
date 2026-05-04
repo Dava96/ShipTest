@@ -1,11 +1,34 @@
 export type { ShiptestConfigContext } from "./config/load-config.js";
 export { loadShiptestConfig, loadShiptestConfigContext } from "./config/load-config.js";
-export type {
-  BenchmarkType,
-  ResolvedShiptestConfig,
-  ShiptestConfig,
-} from "./config/schema.js";
+export type { ResolvedShiptestConfig, ShiptestConfig } from "./config/schema.js";
 export { ShiptestConfigSchema } from "./config/schema.js";
+export type {
+  BenchmarkType as BenchmarkTypeValue,
+  CommandsRunIn as CommandsRunInValue,
+  DependencyChangePolicy as DependencyChangePolicyValue,
+  GitLfsHandling as GitLfsHandlingValue,
+  HiddenEvaluationDirectoryWriteMode as HiddenEvaluationDirectoryWriteModeValue,
+  HiddenEvaluationFileWriteMode as HiddenEvaluationFileWriteModeValue,
+  HiddenEvaluationPatchPolicy as HiddenEvaluationPatchPolicyValue,
+  ModelProvider as ModelProviderValue,
+  RepositoryEnvironmentSource as RepositoryEnvironmentSourceValue,
+  SnapshotStrategy as SnapshotStrategyValue,
+  SubmoduleHandling as SubmoduleHandlingValue,
+} from "./config/schema-values.js";
+export {
+  BenchmarkType,
+  CommandsRunIn,
+  DependencyChangePolicy,
+  GitLfsHandling,
+  HiddenEvaluationDirectoryWriteMode,
+  HiddenEvaluationFileWriteMode,
+  HiddenEvaluationPatchPolicy,
+  ModelProvider,
+  RepositoryEnvironmentSource,
+  SchemaLimits,
+  SnapshotStrategy,
+  SubmoduleHandling,
+} from "./config/schema-values.js";
 export type {
   AttemptResult,
   BenchmarkResult,
@@ -20,11 +43,12 @@ export type {
   SnapshotResult,
 } from "./results/types.js";
 export { buildSnapshot } from "./snapshot/build-snapshot.js";
+export { SnapshotCheckCode, SnapshotCheckSeverity } from "./snapshot/check-codes.js";
+export { createBuildSnapshotOptions } from "./snapshot/options.js";
 export type {
   BuildSnapshotOptions,
   SnapshotBuildResult,
   SnapshotCheck,
-  SnapshotCheckSeverity,
   SnapshotManifest,
   SnapshotManifestFile,
 } from "./snapshot/types.js";

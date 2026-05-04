@@ -3,6 +3,7 @@
 - Solutions should be simple and easy to read where possible
 - Always take the most robust and reliable solution
 - We should always strive for secure solutions
+- I'm encouraging you to push back with my requests I'm open to collaboration
 
 ## Philosophy
 

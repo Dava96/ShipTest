@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SnapshotCheckCode } from "./check-codes.js";
 
 import { applyAgentContextExclusions, findRealGitMetadata } from "./sanitizer.js";
 import { verifyHiddenEvaluationPaths, verifyNoRealGitMetadata } from "./verify.js";
@@ -12,7 +13,7 @@ describe("snapshot verification and sanitization helpers", () => {
     await mkdir(path.join(root, ".git"));
 
     await expect(verifyNoRealGitMetadata(root)).resolves.toMatchObject({
-      code: "INVALID_SNAPSHOT_GIT_METADATA",
+      code: SnapshotCheckCode.InvalidGitMetadata,
       severity: "error",
       paths: [".git"],
     });
@@ -46,11 +47,11 @@ describe("snapshot verification and sanitization helpers", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_FILE_WRITE_MODE_VALID",
+        code: SnapshotCheckCode.HiddenEvaluationFileWriteModeValid,
         severity: "warning",
       }),
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_DIRECTORY_WRITE_MODE_VALID",
+        code: SnapshotCheckCode.HiddenEvaluationDirectoryWriteModeValid,
         severity: "pass",
       }),
     ]);

@@ -1,10 +1,10 @@
 import path from "node:path";
 
+import { SubmoduleHandling } from "../config/schema-values.js";
+import { pathExists } from "../utils/filesystem.js";
+import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
 import { defaultGitOperations, type GitOperations } from "./git.js";
-import { pathExists } from "./sanitizer.js";
 import type { SnapshotCheck } from "./types.js";
-
-export type SubmoduleHandling = "fail_if_detected" | "checkout_recursive" | "leave_unchecked_out";
 
 export async function handleSubmodules(
   stagingCheckoutPath: string,
@@ -16,31 +16,30 @@ export async function handleSubmodules(
   if (!hasSubmodules) {
     return [
       {
-        code: "SNAPSHOT_SUBMODULES_ABSENT",
-        severity: "pass",
+        code: SnapshotCheckCode.SubmodulesAbsent,
+        severity: SnapshotCheckSeverity.Pass,
         message: "No Git submodules detected.",
         paths: [],
       },
     ];
   }
 
-  if (handling === "fail_if_detected") {
+  if (handling === SubmoduleHandling.FailIfDetected) {
     return [
       {
-        code: "SNAPSHOT_SUBMODULES_DETECTED",
-        severity: "error",
-        message:
-          "Git submodules were detected, but snapshot.submodule_handling is fail_if_detected.",
+        code: SnapshotCheckCode.SubmodulesDetected,
+        severity: SnapshotCheckSeverity.Error,
+        message: `Git submodules were detected, but snapshot.submodule_handling is ${SubmoduleHandling.FailIfDetected}.`,
         paths: [".gitmodules"],
       },
     ];
   }
 
-  if (handling === "leave_unchecked_out") {
+  if (handling === SubmoduleHandling.LeaveUncheckedOut) {
     return [
       {
-        code: "SNAPSHOT_SUBMODULES_LEFT_UNCHECKED_OUT",
-        severity: "warning",
+        code: SnapshotCheckCode.SubmodulesLeftUncheckedOut,
+        severity: SnapshotCheckSeverity.Warning,
         message: "Git submodules were detected and left unchecked out by configuration.",
         paths: [".gitmodules"],
       },
@@ -50,15 +49,15 @@ export async function handleSubmodules(
   try {
     await gitOperations.git(["submodule", "update", "--init", "--recursive"], stagingCheckoutPath);
     checks.push({
-      code: "SNAPSHOT_SUBMODULES_CHECKED_OUT",
-      severity: "pass",
+      code: SnapshotCheckCode.SubmodulesCheckedOut,
+      severity: SnapshotCheckSeverity.Pass,
       message: "Git submodules checked out recursively.",
       paths: [".gitmodules"],
     });
   } catch (error) {
     checks.push({
-      code: "SNAPSHOT_SUBMODULE_CHECKOUT_FAILED",
-      severity: "error",
+      code: SnapshotCheckCode.SubmoduleCheckoutFailed,
+      severity: SnapshotCheckSeverity.Error,
       message: error instanceof Error ? error.message : String(error),
       paths: [".gitmodules"],
     });

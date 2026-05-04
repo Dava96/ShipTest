@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { walkFiles } from "./files.js";
+import { GitLfsHandling } from "../config/schema-values.js";
+import { walkFiles } from "../utils/filesystem.js";
+import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
 import { defaultGitOperations, type GitOperations } from "./git.js";
 import type { SnapshotCheck } from "./types.js";
 
@@ -18,8 +20,6 @@ export async function findLfsPointerFiles(snapshotPath: string): Promise<string[
   return pointers.sort();
 }
 
-export type GitLfsHandling = "fail_on_pointers" | "download_lfs_files" | "allow_pointer_files";
-
 export async function createLfsPointerCheck(
   snapshotPath: string,
   handling: GitLfsHandling,
@@ -27,16 +27,19 @@ export async function createLfsPointerCheck(
   const pointers = await findLfsPointerFiles(snapshotPath);
   if (pointers.length === 0) {
     return {
-      code: "SNAPSHOT_GIT_LFS_POINTERS_ABSENT",
-      severity: "pass",
+      code: SnapshotCheckCode.GitLfsPointersAbsent,
+      severity: SnapshotCheckSeverity.Pass,
       message: "No unresolved Git LFS pointer files found in the agent snapshot.",
       paths: [],
     };
   }
 
   return {
-    code: "INVALID_SNAPSHOT_LFS_POINTERS",
-    severity: handling === "allow_pointer_files" ? "warning" : "error",
+    code: SnapshotCheckCode.InvalidLfsPointers,
+    severity:
+      handling === GitLfsHandling.AllowPointerFiles
+        ? SnapshotCheckSeverity.Warning
+        : SnapshotCheckSeverity.Error,
     message: `Found ${pointers.length} unresolved Git LFS pointer file(s).`,
     paths: pointers,
   };
@@ -47,16 +50,16 @@ export async function handleGitLfs(
   handling: GitLfsHandling,
   gitOperations: GitOperations = defaultGitOperations,
 ): Promise<SnapshotCheck[]> {
-  if (handling !== "download_lfs_files") {
+  if (handling !== GitLfsHandling.DownloadLfsFiles) {
     return [];
   }
 
   if (!(await gitOperations.hasGitLfs())) {
     return [
       {
-        code: "SNAPSHOT_GIT_LFS_UNAVAILABLE",
-        severity: "error",
-        message: "Git LFS is not available, but snapshot.git_lfs_handling is download_lfs_files.",
+        code: SnapshotCheckCode.GitLfsUnavailable,
+        severity: SnapshotCheckSeverity.Error,
+        message: `Git LFS is not available, but snapshot.git_lfs_handling is ${GitLfsHandling.DownloadLfsFiles}.`,
       },
     ];
   }
@@ -65,16 +68,16 @@ export async function handleGitLfs(
     await gitOperations.git(["lfs", "pull"], stagingCheckoutPath);
     return [
       {
-        code: "SNAPSHOT_GIT_LFS_DOWNLOADED",
-        severity: "pass",
+        code: SnapshotCheckCode.GitLfsDownloaded,
+        severity: SnapshotCheckSeverity.Pass,
         message: "Git LFS files downloaded successfully.",
       },
     ];
   } catch (error) {
     return [
       {
-        code: "SNAPSHOT_GIT_LFS_DOWNLOAD_FAILED",
-        severity: "error",
+        code: SnapshotCheckCode.GitLfsDownloadFailed,
+        severity: SnapshotCheckSeverity.Error,
         message: error instanceof Error ? error.message : String(error),
       },
     ];

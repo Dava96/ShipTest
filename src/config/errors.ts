@@ -1,5 +1,7 @@
+import type { ConfigIssueCode } from "./issue-codes.js";
+
 export interface ValidationIssue {
-  readonly code: string;
+  readonly code: ConfigIssueCode;
   readonly path: string;
   readonly message: string;
 }

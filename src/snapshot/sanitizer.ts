@@ -1,19 +1,19 @@
-import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { minimatch } from "minimatch";
 
-import { walkEntries } from "./files.js";
+import { safeRemoveDescendant, WalkEntryResult, walkEntries } from "../utils/filesystem.js";
+import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
 import type { SnapshotCheck } from "./types.js";
 
 export async function stripRealGitMetadata(snapshotPath: string): Promise<SnapshotCheck> {
   const gitMetadataPaths = await findRealGitMetadata(snapshotPath);
   await Promise.all(
-    gitMetadataPaths.map((metadataPath) => rm(metadataPath, { force: true, recursive: true })),
+    gitMetadataPaths.map((metadataPath) => safeRemoveDescendant(snapshotPath, metadataPath)),
   );
 
   return {
-    code: "SNAPSHOT_REAL_GIT_METADATA_STRIPPED",
-    severity: "pass",
+    code: SnapshotCheckCode.RealGitMetadataStripped,
+    severity: SnapshotCheckSeverity.Pass,
     message: `Removed ${gitMetadataPaths.length} real Git metadata path(s) from the agent snapshot.`,
     paths: gitMetadataPaths.map((metadataPath) => toRepositoryPath(snapshotPath, metadataPath)),
   };
@@ -24,9 +24,9 @@ export async function findRealGitMetadata(snapshotPath: string): Promise<string[
   await walkEntries(snapshotPath, async (entryPath, entryName) => {
     if (entryName === ".git") {
       matches.push(entryPath);
-      return "skip";
+      return WalkEntryResult.Skip;
     }
-    return "continue";
+    return WalkEntryResult.Continue;
   });
   return matches;
 }
@@ -38,8 +38,8 @@ export async function applyAgentContextExclusions(
   const removedPaths: string[] = [];
   if (excludePaths.length === 0) {
     return {
-      code: "SNAPSHOT_AGENT_CONTEXT_EXCLUSIONS_APPLIED",
-      severity: "pass",
+      code: SnapshotCheckCode.AgentContextExclusionsApplied,
+      severity: SnapshotCheckSeverity.Pass,
       message: "No agent context exclusions configured.",
       paths: [],
     };
@@ -49,15 +49,15 @@ export async function applyAgentContextExclusions(
     const repositoryPath = toRepositoryPath(snapshotPath, entryPath);
     if (excludePaths.some((pattern) => matchesRepositoryPath(repositoryPath, pattern))) {
       removedPaths.push(repositoryPath);
-      await rm(entryPath, { force: true, recursive: true });
-      return "skip";
+      await safeRemoveDescendant(snapshotPath, entryPath);
+      return WalkEntryResult.Skip;
     }
-    return "continue";
+    return WalkEntryResult.Continue;
   });
 
   return {
-    code: "SNAPSHOT_AGENT_CONTEXT_EXCLUSIONS_APPLIED",
-    severity: "pass",
+    code: SnapshotCheckCode.AgentContextExclusionsApplied,
+    severity: SnapshotCheckSeverity.Pass,
     message: `Applied agent context exclusions and removed ${removedPaths.length} path(s).`,
     paths: removedPaths,
   };
@@ -69,15 +69,6 @@ export function matchesRepositoryPath(repositoryPath: string, pattern: string): 
     minimatch(repositoryPath, normalizedPattern, { dot: true }) ||
     repositoryPath === normalizedPattern
   );
-}
-
-export async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function toRepositoryPath(rootPath: string, filePath: string): string {

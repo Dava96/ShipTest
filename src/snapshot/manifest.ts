@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { walkFiles } from "./files.js";
+import { walkFiles } from "../utils/filesystem.js";
 import type { SnapshotManifest, SnapshotManifestFile } from "./types.js";
 
 export async function createSnapshotManifest(options: {

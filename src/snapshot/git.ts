@@ -3,6 +3,10 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export const GitCommandLimits = {
+  MaxBufferBytes: 10 * 1024 * 1024,
+} as const;
+
 export interface GitCommandResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -11,7 +15,7 @@ export interface GitCommandResult {
 export async function git(args: readonly string[], cwd?: string): Promise<GitCommandResult> {
   const result = await execFileAsync("git", args, {
     cwd,
-    maxBuffer: 10 * 1024 * 1024,
+    maxBuffer: GitCommandLimits.MaxBufferBytes,
     windowsHide: true,
   });
   return { stdout: result.stdout, stderr: result.stderr };

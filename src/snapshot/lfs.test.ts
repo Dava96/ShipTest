@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SnapshotCheckCode } from "./check-codes.js";
 
 import { hasGitLfs } from "./git.js";
 import { createLfsPointerCheck, findLfsPointerFiles, handleGitLfs } from "./lfs.js";
@@ -19,7 +20,7 @@ describe("Git LFS snapshot handling", () => {
     await writeFile(path.join(root, "file.txt"), "hello\n", "utf8");
 
     await expect(createLfsPointerCheck(root, "fail_on_pointers")).resolves.toEqual({
-      code: "SNAPSHOT_GIT_LFS_POINTERS_ABSENT",
+      code: SnapshotCheckCode.GitLfsPointersAbsent,
       severity: "pass",
       message: "No unresolved Git LFS pointer files found in the agent snapshot.",
       paths: [],
@@ -35,7 +36,7 @@ describe("Git LFS snapshot handling", () => {
         hasGitLfs: async () => false,
       }),
     ).resolves.toContainEqual(
-      expect.objectContaining({ code: "SNAPSHOT_GIT_LFS_UNAVAILABLE", severity: "error" }),
+      expect.objectContaining({ code: SnapshotCheckCode.GitLfsUnavailable, severity: "error" }),
     );
 
     await expect(
@@ -47,7 +48,7 @@ describe("Git LFS snapshot handling", () => {
       }),
     ).resolves.toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_GIT_LFS_DOWNLOAD_FAILED",
+        code: SnapshotCheckCode.GitLfsDownloadFailed,
         message: "lfs error",
         severity: "error",
       }),

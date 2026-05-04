@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+import {
+  BenchmarkType,
+  CommandsRunIn,
+  DependencyChangePolicy,
+  GitLfsHandling,
+  HiddenEvaluationDirectoryWriteMode,
+  HiddenEvaluationFileWriteMode,
+  HiddenEvaluationPatchPolicy,
+  ModelProvider,
+  RepositoryEnvironmentSource,
+  SchemaLimits,
+  SnapshotStrategy,
+  SubmoduleHandling,
+} from "./schema-values.js";
+
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const positiveInteger = z.number().int().positive();
 const nonEmptyString = z.string().min(1);
@@ -10,17 +25,28 @@ const id = nonEmptyString.regex(idPattern, {
 
 export const RepositoryEnvironmentSchema = z
   .object({
-    execution_mode: z.enum(["single_container", "workload_container"]).default("single_container"),
+    commands_run_in: z
+      .enum([CommandsRunIn.ShiptestEnvironment, CommandsRunIn.RepositoryEnvironment])
+      .default(CommandsRunIn.ShiptestEnvironment),
     source: z
-      .enum(["local", "dockerfile_target", "docker_image", "devcontainer", "compose"])
-      .default("local"),
+      .enum([
+        RepositoryEnvironmentSource.Local,
+        RepositoryEnvironmentSource.DockerfileTarget,
+        RepositoryEnvironmentSource.DockerImage,
+        RepositoryEnvironmentSource.Devcontainer,
+        RepositoryEnvironmentSource.Compose,
+        RepositoryEnvironmentSource.Scripts,
+      ])
+      .default(RepositoryEnvironmentSource.Local),
     dockerfile_path: nonEmptyString.optional(),
     dockerfile_target: nonEmptyString.optional(),
     image: nonEmptyString.optional(),
     compose_file: nonEmptyString.optional(),
     service: nonEmptyString.optional(),
+    devcontainer_path: nonEmptyString.optional(),
     setup_commands: z.array(nonEmptyString).default([]),
     validation_commands: z.array(nonEmptyString).min(1),
+    teardown_commands: z.array(nonEmptyString).default([]),
     required_secrets: z
       .object({
         setup: z.array(nonEmptyString).default([]),
@@ -29,17 +55,30 @@ export const RepositoryEnvironmentSchema = z
       .strict()
       .prefault({}),
   })
-  .strict();
+  .strict()
+  .superRefine((environment, context) => {
+    requireFieldsForSource(environment, context);
+  });
 
 export const SnapshotSchema = z
   .object({
-    strategy: z.enum(["sanitized_copy", "git_archive"]).default("sanitized_copy"),
+    strategy: z
+      .enum([SnapshotStrategy.SanitizedCopy, SnapshotStrategy.GitArchive])
+      .default(SnapshotStrategy.SanitizedCopy),
     git_lfs_handling: z
-      .enum(["fail_on_pointers", "download_lfs_files", "allow_pointer_files"])
-      .default("fail_on_pointers"),
+      .enum([
+        GitLfsHandling.FailOnPointers,
+        GitLfsHandling.DownloadLfsFiles,
+        GitLfsHandling.AllowPointerFiles,
+      ])
+      .default(GitLfsHandling.FailOnPointers),
     submodule_handling: z
-      .enum(["fail_if_detected", "checkout_recursive", "leave_unchecked_out"])
-      .default("fail_if_detected"),
+      .enum([
+        SubmoduleHandling.FailIfDetected,
+        SubmoduleHandling.CheckoutRecursive,
+        SubmoduleHandling.LeaveUncheckedOut,
+      ])
+      .default(SubmoduleHandling.FailIfDetected),
     strip_real_git_metadata: z.literal(true).default(true),
   })
   .strict()
@@ -47,19 +86,16 @@ export const SnapshotSchema = z
 
 export const ShiptestRunnerSchema = z
   .object({
-    synthetic_git: z.boolean().default(true),
+    clean_git_repo: z
+      .object({
+        enabled: z.literal(true).default(true),
+      })
+      .strict()
+      .prefault({}),
     validated_baseline: z
       .object({
         enabled: z.literal(true).default(true),
         cache: z.boolean().default(true),
-      })
-      .strict()
-      .prefault({}),
-    command_output: z
-      .object({
-        head_lines: positiveInteger.max(10_000).default(120),
-        tail_lines: positiveInteger.max(10_000).default(120),
-        max_artifact_bytes: positiveInteger.max(1_000_000_000).default(10_000_000),
       })
       .strict()
       .prefault({}),
@@ -69,10 +105,16 @@ export const ShiptestRunnerSchema = z
 
 export const LimitsSchema = z
   .object({
-    max_runtime_minutes: positiveInteger.max(24 * 60).default(30),
-    max_turns: positiveInteger.max(10_000).default(40),
-    max_tool_calls: positiveInteger.max(100_000).default(200),
-    max_total_tokens: positiveInteger.max(100_000_000).default(350_000),
+    max_runtime_minutes: positiveInteger
+      .max(SchemaLimits.MaxRuntimeMinutesMax)
+      .default(SchemaLimits.MaxRuntimeMinutesDefault),
+    max_turns: positiveInteger.max(SchemaLimits.MaxTurnsMax).default(SchemaLimits.MaxTurnsDefault),
+    max_tool_calls: positiveInteger
+      .max(SchemaLimits.MaxToolCallsMax)
+      .default(SchemaLimits.MaxToolCallsDefault),
+    max_total_tokens: positiveInteger
+      .max(SchemaLimits.MaxTotalTokensMax)
+      .default(SchemaLimits.MaxTotalTokensDefault),
     max_estimated_cost_usd: z.number().positive().optional(),
   })
   .strict()
@@ -81,13 +123,17 @@ export const LimitsSchema = z
 export const ModelSchema = z
   .object({
     id,
-    provider: z.enum(["openai", "anthropic", "openai_compatible"]),
+    provider: z.enum([
+      ModelProvider.OpenAi,
+      ModelProvider.Anthropic,
+      ModelProvider.OpenAiCompatible,
+    ]),
     model: nonEmptyString,
     base_url: z.url().optional(),
   })
   .strict()
   .superRefine((model, context) => {
-    if (model.provider === "openai_compatible" && !model.base_url) {
+    if (model.provider === ModelProvider.OpenAiCompatible && !model.base_url) {
       context.addIssue({
         code: "custom",
         path: ["base_url"],
@@ -108,7 +154,11 @@ export const HiddenEvaluationFileSchema = z
   .object({
     shiptest_path: nonEmptyString,
     repository_path: nonEmptyString,
-    write_mode: z.enum(["create_new", "replace_existing", "create_or_replace"]),
+    write_mode: z.enum([
+      HiddenEvaluationFileWriteMode.CreateNew,
+      HiddenEvaluationFileWriteMode.ReplaceExisting,
+      HiddenEvaluationFileWriteMode.CreateOrReplace,
+    ]),
   })
   .strict();
 
@@ -117,10 +167,10 @@ export const HiddenEvaluationDirectorySchema = z
     shiptest_path: nonEmptyString,
     repository_path: nonEmptyString,
     write_mode: z.enum([
-      "create_new",
-      "replace_existing",
-      "merge_without_overwrite",
-      "merge_and_replace",
+      HiddenEvaluationDirectoryWriteMode.CreateNew,
+      HiddenEvaluationDirectoryWriteMode.ReplaceExisting,
+      HiddenEvaluationDirectoryWriteMode.MergeWithoutOverwrite,
+      HiddenEvaluationDirectoryWriteMode.MergeAndReplace,
     ]),
   })
   .strict();
@@ -137,9 +187,17 @@ export const EvaluationSchema = z
     hidden_evaluation_files: z.array(HiddenEvaluationFileSchema).default([]),
     hidden_evaluation_directories: z.array(HiddenEvaluationDirectorySchema).default([]),
     hidden_evaluation_patches: z.array(HiddenEvaluationPatchSchema).default([]),
-    hidden_evaluation_patch_policy: z.literal("advanced_allow_collision_risk").optional(),
+    hidden_evaluation_patch_policy: z
+      .literal(HiddenEvaluationPatchPolicy.AdvancedAllowCollisionRisk)
+      .optional(),
     scoring_command: nonEmptyString,
-    dependency_changes: z.enum(["allow", "warn", "fail"]).default("warn"),
+    dependency_changes: z
+      .enum([
+        DependencyChangePolicy.Allow,
+        DependencyChangePolicy.Warn,
+        DependencyChangePolicy.Fail,
+      ])
+      .default(DependencyChangePolicy.Warn),
     rerun_setup_on_dependency_change: z.boolean().default(true),
   })
   .strict()
@@ -160,17 +218,17 @@ export const EvaluationSchema = z
 export const BenchmarkSchema = z
   .object({
     id,
-    type: z.enum(["replay_change", "implementation"]),
+    type: z.enum([BenchmarkType.ReplayChange, BenchmarkType.Implementation]),
     base_commit: nonEmptyString.optional(),
     task: nonEmptyString,
-    attempts: positiveInteger.max(1_000).default(1),
+    attempts: positiveInteger.max(SchemaLimits.BenchmarkAttemptsMax).default(1),
     models: z.array(id).optional(),
     agent_context: AgentContextSchema,
     evaluation: EvaluationSchema,
   })
   .strict()
   .superRefine((benchmark, context) => {
-    if (benchmark.type === "replay_change") {
+    if (benchmark.type === BenchmarkType.ReplayChange) {
       if (!benchmark.base_commit) {
         context.addIssue({
           code: "custom",
@@ -195,7 +253,7 @@ export const BenchmarkSchema = z
 
 export const ShiptestConfigSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(SchemaLimits.ConfigSchemaVersion),
     project: z
       .object({
         name: nonEmptyString,
@@ -228,6 +286,38 @@ export const ShiptestConfigSchema = z
     }
   });
 
+function requireFieldsForSource(
+  environment: {
+    readonly source: RepositoryEnvironmentSource;
+    readonly compose_file?: string | undefined;
+    readonly devcontainer_path?: string | undefined;
+    readonly dockerfile_path?: string | undefined;
+    readonly dockerfile_target?: string | undefined;
+    readonly image?: string | undefined;
+    readonly service?: string | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  const requiredFieldsBySource = {
+    [RepositoryEnvironmentSource.Compose]: ["compose_file", "service"],
+    [RepositoryEnvironmentSource.Devcontainer]: ["devcontainer_path"],
+    [RepositoryEnvironmentSource.DockerImage]: ["image"],
+    [RepositoryEnvironmentSource.DockerfileTarget]: ["dockerfile_path", "dockerfile_target"],
+    [RepositoryEnvironmentSource.Local]: [],
+    [RepositoryEnvironmentSource.Scripts]: [],
+  } as const;
+
+  for (const field of requiredFieldsBySource[environment.source]) {
+    if (!environment[field]) {
+      context.addIssue({
+        code: "custom",
+        path: [field],
+        message: `source ${environment.source} requires ${field}`,
+      });
+    }
+  }
+}
+
 function addDuplicateIdIssues(
   items: readonly { readonly id: string }[],
   path: "models" | "benchmarks",
@@ -250,4 +340,3 @@ function addDuplicateIdIssues(
 
 export type ShiptestConfig = z.input<typeof ShiptestConfigSchema>;
 export type ResolvedShiptestConfig = z.output<typeof ShiptestConfigSchema>;
-export type BenchmarkType = ResolvedShiptestConfig["benchmarks"][number]["type"];

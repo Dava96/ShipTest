@@ -29,3 +29,11 @@ export function pathToConfigPath(pathSegments: readonly (string | number)[]): st
     return current ? `${current}.${segment}` : segment;
   }, "");
 }
+
+export function zodIssuePathToConfigPath(pathSegments: readonly PropertyKey[]): string {
+  return pathToConfigPath(pathSegments.filter(isStringOrNumber));
+}
+
+function isStringOrNumber(segment: PropertyKey): segment is string | number {
+  return typeof segment === "string" || typeof segment === "number";
+}

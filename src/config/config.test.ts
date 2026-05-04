@@ -69,7 +69,9 @@ describe("config loading and validation", () => {
         fixture.configPath,
         configText
           .replace("  source: dockerfile_target\n", "")
+          .replace("  commands_run_in: repository_environment\n", "")
           .replace("  dockerfile_path: Dockerfile\n", "")
+          .replace("  dockerfile_target: test\n", "")
           .replace("  compose_file: compose.yaml\n", ""),
         "utf8",
       ),
@@ -108,10 +110,11 @@ describe("config loading and validation", () => {
     } satisfies Partial<ShiptestConfigError>);
   });
 
-  it("reports when hidden evaluation directory paths point to files", async () => {
-    const fixture = await createConfigFixture({ hiddenDirectoryPath: "tasks/task.md" });
-
-    await expect(loadShiptestConfig(fixture.configPath)).rejects.toMatchObject({
+  it("reports when hidden evaluation asset path types are wrong", async () => {
+    const directoryPathFixture = await createConfigFixture({
+      hiddenDirectoryPath: "tasks/task.md",
+    });
+    await expect(loadShiptestConfig(directoryPathFixture.configPath)).rejects.toMatchObject({
       issues: expect.arrayContaining([
         expect.objectContaining({
           code: "REFERENCED_DIRECTORY_NOT_FOUND",
@@ -119,6 +122,82 @@ describe("config loading and validation", () => {
         }),
       ]),
     } satisfies Partial<ShiptestConfigError>);
+
+    const filePathFixture = await createConfigFixture({ hiddenFilePath: "hidden/fixtures" });
+    await expect(loadShiptestConfig(filePathFixture.configPath)).rejects.toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({
+          code: "REFERENCED_FILE_NOT_FOUND",
+          message: expect.stringContaining("Path is not a file"),
+        }),
+      ]),
+    } satisfies Partial<ShiptestConfigError>);
+  });
+
+  it("requires source-specific repository environment fields", () => {
+    const baseConfig = {
+      version: 1,
+      project: { name: "p", repo: "." },
+      models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      benchmarks: [
+        {
+          id: "invoice",
+          type: "implementation",
+          task: "task.md",
+          evaluation: { scoring_command: "npm test" },
+        },
+      ],
+    };
+
+    expect(
+      ShiptestConfigSchema.safeParse({
+        ...baseConfig,
+        repository_environment: {
+          source: "dockerfile_target",
+          validation_commands: ["npm test"],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ShiptestConfigSchema.safeParse({
+        ...baseConfig,
+        repository_environment: {
+          source: "docker_image",
+          validation_commands: ["npm test"],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ShiptestConfigSchema.safeParse({
+        ...baseConfig,
+        repository_environment: {
+          source: "compose",
+          compose_file: "compose.yaml",
+          validation_commands: ["npm test"],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ShiptestConfigSchema.safeParse({
+        ...baseConfig,
+        repository_environment: {
+          source: "devcontainer",
+          validation_commands: ["npm test"],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ShiptestConfigSchema.safeParse({
+        ...baseConfig,
+        repository_environment: {
+          commands_run_in: "repository_environment",
+          source: "scripts",
+          setup_commands: ["./install.sh"],
+          validation_commands: ["./test.sh --filter invoice"],
+          teardown_commands: ["./stop.sh"],
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("requires an explicit policy for hidden evaluation patches", () => {
@@ -224,7 +303,9 @@ project:
   repo: repo
 repository_environment:
   source: dockerfile_target
+  commands_run_in: repository_environment
   dockerfile_path: ${options.dockerfilePath ?? "Dockerfile"}
+  dockerfile_target: test
   compose_file: ${options.composeFile ?? "compose.yaml"}
   validation_commands:
     - npm test

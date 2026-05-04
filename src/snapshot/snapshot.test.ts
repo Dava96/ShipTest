@@ -2,9 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-
+import type { ShiptestConfigContext } from "../config/load-config.js";
 import { buildSnapshot } from "./build-snapshot.js";
+import { SnapshotCheckCode } from "./check-codes.js";
 import { git } from "./git.js";
+import { createBuildSnapshotOptions } from "./options.js";
 import type { BuildSnapshotOptions } from "./types.js";
 
 describe("buildSnapshot", () => {
@@ -24,9 +26,9 @@ describe("buildSnapshot", () => {
     await expect(readFile(path.join(result.agent_snapshot_path, "AGENTS.md"))).rejects.toThrow();
     expect(result.manifest.files.map((file) => file.repository_path)).toContain("src/index.ts");
     expect(result.manifest.files.map((file) => file.repository_path)).not.toContain("AGENTS.md");
-    expect(result.checks.some((check) => check.code === "SNAPSHOT_REAL_GIT_METADATA_ABSENT")).toBe(
-      true,
-    );
+    expect(
+      result.checks.some((check) => check.code === SnapshotCheckCode.RealGitMetadataAbsent),
+    ).toBe(true);
   });
 
   it("returns a structured error when LFS pointer files remain", async () => {
@@ -36,7 +38,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "INVALID_SNAPSHOT_LFS_POINTERS",
+        code: SnapshotCheckCode.InvalidLfsPointers,
         severity: "error",
         paths: ["large.bin"],
       }),
@@ -62,11 +64,67 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(true);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_FILE_WRITE_MODE_VALID",
+        code: SnapshotCheckCode.HiddenEvaluationFileWriteModeValid,
         severity: "pass",
         paths: ["tests/existing.test.ts"],
       }),
     );
+  });
+
+  it("creates build options from a loaded config context", async () => {
+    const fixture = await createGitRepoFixture();
+    const context: ShiptestConfigContext = {
+      config: {
+        version: 1,
+        project: { name: "fixture", repo: "repo" },
+        repository_environment: {
+          commands_run_in: "shiptest_environment",
+          source: "local",
+          setup_commands: [],
+          validation_commands: ["npm test"],
+          teardown_commands: [],
+          required_secrets: { setup: [], evaluation: [] },
+        },
+        snapshot: baseSnapshotOptions(fixture).snapshot,
+        shiptest_runner: {
+          clean_git_repo: { enabled: true },
+          validated_baseline: { enabled: true, cache: true },
+        },
+        limits: {
+          max_runtime_minutes: 30,
+          max_turns: 40,
+          max_tool_calls: 200,
+          max_total_tokens: 350_000,
+        },
+        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+        benchmarks: [
+          {
+            id: "invoice",
+            type: "implementation",
+            task: "tasks/invoice.md",
+            attempts: 1,
+            agent_context: { exclude_paths: [], instruction_files: [] },
+            evaluation: baseSnapshotOptions(fixture).evaluation,
+          },
+        ],
+      },
+      configPath: path.join(fixture.configDir, "shiptest.yaml"),
+      configDir: fixture.configDir,
+    };
+
+    expect(
+      createBuildSnapshotOptions({
+        context,
+        benchmark_id: "invoice",
+        output_root_path: fixture.outputRootPath,
+      }),
+    ).toMatchObject({
+      source_repo_path: fixture.repoPath,
+      shiptest_config_dir: fixture.configDir,
+    });
+    expect(() =>
+      createBuildSnapshotOptions({ context, benchmark_id: "missing", output_root_path: "out" }),
+    ).toThrow("Unknown benchmark id: missing");
   });
 
   it("uses HEAD when no base commit is provided", async () => {
@@ -95,6 +153,80 @@ describe("buildSnapshot", () => {
     );
   });
 
+  it("fails when hidden ShipTest assets inside the source repo are visible", async () => {
+    const fixture = await createGitRepoFixture();
+    await mkdir(path.join(fixture.repoPath, ".shiptest", "hidden"), { recursive: true });
+    await writeFile(
+      path.join(fixture.repoPath, ".shiptest", "hidden", "test.ts"),
+      "// hidden\n",
+      "utf8",
+    );
+    await git(["add", "-A"], fixture.repoPath);
+    await git(["commit", "-m", "add hidden asset"], fixture.repoPath);
+    const commit = (await git(["rev-parse", "HEAD"], fixture.repoPath)).stdout.trim();
+
+    const result = await buildSnapshot({
+      ...baseSnapshotOptions({ ...fixture, commit }),
+      shiptest_config_dir: fixture.repoPath,
+      evaluation: {
+        ...baseSnapshotOptions(fixture).evaluation,
+        hidden_evaluation_files: [
+          {
+            shiptest_path: ".shiptest/hidden/test.ts",
+            repository_path: "tests/hidden.test.ts",
+            write_mode: "create_new",
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        code: SnapshotCheckCode.HiddenEvaluationShiptestPathVisible,
+        severity: "error",
+        paths: [".shiptest/hidden/test.ts"],
+      }),
+    );
+  });
+
+  it("passes when hidden ShipTest assets inside the source repo are excluded", async () => {
+    const fixture = await createGitRepoFixture();
+    await mkdir(path.join(fixture.repoPath, ".shiptest", "hidden"), { recursive: true });
+    await writeFile(
+      path.join(fixture.repoPath, ".shiptest", "hidden", "test.ts"),
+      "// hidden\n",
+      "utf8",
+    );
+    await git(["add", "-A"], fixture.repoPath);
+    await git(["commit", "-m", "add hidden asset"], fixture.repoPath);
+    const commit = (await git(["rev-parse", "HEAD"], fixture.repoPath)).stdout.trim();
+
+    const result = await buildSnapshot({
+      ...baseSnapshotOptions({ ...fixture, commit }),
+      agent_context: { exclude_paths: [".shiptest/**"], instruction_files: [] },
+      shiptest_config_dir: fixture.repoPath,
+      evaluation: {
+        ...baseSnapshotOptions(fixture).evaluation,
+        hidden_evaluation_files: [
+          {
+            shiptest_path: ".shiptest/hidden/test.ts",
+            repository_path: "tests/hidden.test.ts",
+            write_mode: "create_new",
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        code: SnapshotCheckCode.HiddenShiptestAssetsAbsent,
+        severity: "pass",
+      }),
+    );
+  });
+
   it("returns a structured error for unsupported snapshot strategies", async () => {
     const fixture = await createGitRepoFixture();
     const result = await buildSnapshot({
@@ -109,7 +241,7 @@ describe("buildSnapshot", () => {
       ok: false,
       checks: [
         expect.objectContaining({
-          code: "SNAPSHOT_STRATEGY_NOT_IMPLEMENTED",
+          code: SnapshotCheckCode.StrategyNotImplemented,
           severity: "error",
         }),
       ],
@@ -129,7 +261,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(true);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "INVALID_SNAPSHOT_LFS_POINTERS",
+        code: SnapshotCheckCode.InvalidLfsPointers,
         severity: "warning",
         paths: ["large.bin"],
       }),
@@ -155,7 +287,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_PATH_ALREADY_EXISTS",
+        code: SnapshotCheckCode.HiddenEvaluationPathAlreadyExists,
         severity: "error",
         paths: ["tests/existing.test.ts"],
       }),
@@ -181,7 +313,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_PATH_MISSING_FOR_REPLACE",
+        code: SnapshotCheckCode.HiddenEvaluationPathMissingForReplace,
         severity: "error",
         paths: ["tests/missing.test.ts"],
       }),
@@ -218,21 +350,21 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_DIRECTORY_ALREADY_EXISTS",
+        code: SnapshotCheckCode.HiddenEvaluationDirectoryAlreadyExists,
         severity: "error",
         paths: ["tests"],
       }),
     );
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_DIRECTORY_MISSING_FOR_REPLACE",
+        code: SnapshotCheckCode.HiddenEvaluationDirectoryMissingForReplace,
         severity: "error",
         paths: ["tests/missing-fixtures"],
       }),
     );
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "HIDDEN_EVALUATION_DIRECTORY_WRITE_MODE_VALID",
+        code: SnapshotCheckCode.HiddenEvaluationDirectoryWriteModeValid,
         severity: "warning",
         paths: ["tests"],
       }),
@@ -246,7 +378,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(false);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_SUBMODULES_DETECTED",
+        code: SnapshotCheckCode.SubmodulesDetected,
         severity: "error",
         paths: [".gitmodules"],
       }),
@@ -266,7 +398,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(true);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_SUBMODULES_LEFT_UNCHECKED_OUT",
+        code: SnapshotCheckCode.SubmodulesLeftUncheckedOut,
         severity: "warning",
         paths: [".gitmodules"],
       }),
@@ -286,7 +418,7 @@ describe("buildSnapshot", () => {
     expect(result.ok).toBe(true);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_SUBMODULES_CHECKED_OUT",
+        code: SnapshotCheckCode.SubmodulesCheckedOut,
         severity: "pass",
         paths: [".gitmodules"],
       }),
@@ -313,6 +445,7 @@ describe("buildSnapshot", () => {
 });
 
 interface GitRepoFixture {
+  readonly configDir: string;
   readonly repoPath: string;
   readonly outputRootPath: string;
   readonly commit: string;
@@ -358,7 +491,7 @@ async function createGitRepoFixture(options: GitRepoFixtureOptions = {}): Promis
   await git(["commit", "-m", "initial"], repoPath);
   const commit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
 
-  return { repoPath, outputRootPath, commit };
+  return { configDir: root, repoPath, outputRootPath, commit };
 }
 
 function baseSnapshotOptions(fixture: GitRepoFixture): BuildSnapshotOptions {
@@ -366,6 +499,7 @@ function baseSnapshotOptions(fixture: GitRepoFixture): BuildSnapshotOptions {
     source_repo_path: fixture.repoPath,
     base_commit: fixture.commit,
     output_root_path: fixture.outputRootPath,
+    shiptest_config_dir: fixture.configDir,
     snapshot: {
       strategy: "sanitized_copy",
       git_lfs_handling: "fail_on_pointers",

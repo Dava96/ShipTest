@@ -1,22 +1,28 @@
 import path from "node:path";
 
-import { findRealGitMetadata, pathExists } from "./sanitizer.js";
+import {
+  HiddenEvaluationDirectoryWriteMode,
+  HiddenEvaluationFileWriteMode,
+} from "../config/schema-values.js";
+import { pathExists } from "../utils/filesystem.js";
+import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
+import { findRealGitMetadata } from "./sanitizer.js";
 import type { BuildSnapshotOptions, SnapshotCheck } from "./types.js";
 
 export async function verifyNoRealGitMetadata(agentSnapshotPath: string): Promise<SnapshotCheck> {
   const gitMetadata = await findRealGitMetadata(agentSnapshotPath);
   if (gitMetadata.length === 0) {
     return {
-      code: "SNAPSHOT_REAL_GIT_METADATA_ABSENT",
-      severity: "pass",
+      code: SnapshotCheckCode.RealGitMetadataAbsent,
+      severity: SnapshotCheckSeverity.Pass,
       message: "No real Git metadata found in the agent snapshot.",
       paths: [],
     };
   }
 
   return {
-    code: "INVALID_SNAPSHOT_GIT_METADATA",
-    severity: "error",
+    code: SnapshotCheckCode.InvalidGitMetadata,
+    severity: SnapshotCheckSeverity.Error,
     message: "Real Git metadata remains in the agent snapshot.",
     paths: gitMetadata.map((metadataPath) => path.relative(agentSnapshotPath, metadataPath)),
   };
@@ -49,28 +55,31 @@ export async function verifyHiddenEvaluationPaths(
 
 function createWriteModeCheck(
   repositoryPath: string,
-  writeMode: string,
+  writeMode: HiddenEvaluationFileWriteMode,
   exists: boolean,
 ): SnapshotCheck {
-  if (writeMode === "create_new" && exists) {
+  if (writeMode === HiddenEvaluationFileWriteMode.CreateNew && exists) {
     return {
-      code: "HIDDEN_EVALUATION_PATH_ALREADY_EXISTS",
-      severity: "error",
-      message: "Hidden evaluation file uses create_new but repository_path already exists.",
+      code: SnapshotCheckCode.HiddenEvaluationPathAlreadyExists,
+      severity: SnapshotCheckSeverity.Error,
+      message: `Hidden evaluation file uses ${HiddenEvaluationFileWriteMode.CreateNew} but repository_path already exists.`,
       paths: [repositoryPath],
     };
   }
-  if (writeMode === "replace_existing" && !exists) {
+  if (writeMode === HiddenEvaluationFileWriteMode.ReplaceExisting && !exists) {
     return {
-      code: "HIDDEN_EVALUATION_PATH_MISSING_FOR_REPLACE",
-      severity: "error",
-      message: "Hidden evaluation file uses replace_existing but repository_path does not exist.",
+      code: SnapshotCheckCode.HiddenEvaluationPathMissingForReplace,
+      severity: SnapshotCheckSeverity.Error,
+      message: `Hidden evaluation file uses ${HiddenEvaluationFileWriteMode.ReplaceExisting} but repository_path does not exist.`,
       paths: [repositoryPath],
     };
   }
   return {
-    code: "HIDDEN_EVALUATION_FILE_WRITE_MODE_VALID",
-    severity: writeMode === "create_or_replace" ? "warning" : "pass",
+    code: SnapshotCheckCode.HiddenEvaluationFileWriteModeValid,
+    severity:
+      writeMode === HiddenEvaluationFileWriteMode.CreateOrReplace
+        ? SnapshotCheckSeverity.Warning
+        : SnapshotCheckSeverity.Pass,
     message: `Hidden evaluation file write_mode '${writeMode}' is valid for repository_path.`,
     paths: [repositoryPath],
   };
@@ -78,29 +87,31 @@ function createWriteModeCheck(
 
 function createDirectoryWriteModeCheck(
   repositoryPath: string,
-  writeMode: string,
+  writeMode: HiddenEvaluationDirectoryWriteMode,
   exists: boolean,
 ): SnapshotCheck {
-  if (writeMode === "create_new" && exists) {
+  if (writeMode === HiddenEvaluationDirectoryWriteMode.CreateNew && exists) {
     return {
-      code: "HIDDEN_EVALUATION_DIRECTORY_ALREADY_EXISTS",
-      severity: "error",
-      message: "Hidden evaluation directory uses create_new but repository_path already exists.",
+      code: SnapshotCheckCode.HiddenEvaluationDirectoryAlreadyExists,
+      severity: SnapshotCheckSeverity.Error,
+      message: `Hidden evaluation directory uses ${HiddenEvaluationDirectoryWriteMode.CreateNew} but repository_path already exists.`,
       paths: [repositoryPath],
     };
   }
-  if (writeMode === "replace_existing" && !exists) {
+  if (writeMode === HiddenEvaluationDirectoryWriteMode.ReplaceExisting && !exists) {
     return {
-      code: "HIDDEN_EVALUATION_DIRECTORY_MISSING_FOR_REPLACE",
-      severity: "error",
-      message:
-        "Hidden evaluation directory uses replace_existing but repository_path does not exist.",
+      code: SnapshotCheckCode.HiddenEvaluationDirectoryMissingForReplace,
+      severity: SnapshotCheckSeverity.Error,
+      message: `Hidden evaluation directory uses ${HiddenEvaluationDirectoryWriteMode.ReplaceExisting} but repository_path does not exist.`,
       paths: [repositoryPath],
     };
   }
   return {
-    code: "HIDDEN_EVALUATION_DIRECTORY_WRITE_MODE_VALID",
-    severity: writeMode === "merge_and_replace" ? "warning" : "pass",
+    code: SnapshotCheckCode.HiddenEvaluationDirectoryWriteModeValid,
+    severity:
+      writeMode === HiddenEvaluationDirectoryWriteMode.MergeAndReplace
+        ? SnapshotCheckSeverity.Warning
+        : SnapshotCheckSeverity.Pass,
     message: `Hidden evaluation directory write_mode '${writeMode}' is valid for repository_path.`,
     paths: [repositoryPath],
   };

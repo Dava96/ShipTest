@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SnapshotCheckCode } from "./check-codes.js";
 
 import { handleSubmodules } from "./submodules.js";
 
@@ -11,7 +12,7 @@ describe("Git submodule snapshot handling", () => {
 
     await expect(handleSubmodules(root, "fail_if_detected")).resolves.toEqual([
       {
-        code: "SNAPSHOT_SUBMODULES_ABSENT",
+        code: SnapshotCheckCode.SubmodulesAbsent,
         severity: "pass",
         message: "No Git submodules detected.",
         paths: [],
@@ -23,11 +24,11 @@ describe("Git submodule snapshot handling", () => {
     const root = await createTempDirectory({ withGitModules: true });
 
     await expect(handleSubmodules(root, "fail_if_detected")).resolves.toContainEqual(
-      expect.objectContaining({ code: "SNAPSHOT_SUBMODULES_DETECTED", severity: "error" }),
+      expect.objectContaining({ code: SnapshotCheckCode.SubmodulesDetected, severity: "error" }),
     );
     await expect(handleSubmodules(root, "leave_unchecked_out")).resolves.toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_SUBMODULES_LEFT_UNCHECKED_OUT",
+        code: SnapshotCheckCode.SubmodulesLeftUncheckedOut,
         severity: "warning",
       }),
     );
@@ -42,7 +43,7 @@ describe("Git submodule snapshot handling", () => {
         hasGitLfs: async () => true,
       }),
     ).resolves.toContainEqual(
-      expect.objectContaining({ code: "SNAPSHOT_SUBMODULES_CHECKED_OUT", severity: "pass" }),
+      expect.objectContaining({ code: SnapshotCheckCode.SubmodulesCheckedOut, severity: "pass" }),
     );
 
     await expect(
@@ -54,7 +55,7 @@ describe("Git submodule snapshot handling", () => {
       }),
     ).resolves.toContainEqual(
       expect.objectContaining({
-        code: "SNAPSHOT_SUBMODULE_CHECKOUT_FAILED",
+        code: SnapshotCheckCode.SubmoduleCheckoutFailed,
         message: "submodule error",
         severity: "error",
       }),

@@ -1,9 +1,13 @@
 import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { SnapshotStrategy } from "../config/schema-values.js";
+import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
 import { git, resolveCommit, resolveTree } from "./git.js";
+import { verifyHiddenShiptestAssetPaths } from "./hidden-assets.js";
 import { createLfsPointerCheck, handleGitLfs } from "./lfs.js";
 import { createSnapshotManifest } from "./manifest.js";
+import { validateSnapshotOutputPathSafety } from "./safety.js";
 import { applyAgentContextExclusions, stripRealGitMetadata } from "./sanitizer.js";
 import { handleSubmodules } from "./submodules.js";
 import type { BuildSnapshotOptions, SnapshotBuildResult, SnapshotCheck } from "./types.js";
@@ -12,16 +16,27 @@ import { verifyHiddenEvaluationPaths, verifyNoRealGitMetadata } from "./verify.j
 export async function buildSnapshot(options: BuildSnapshotOptions): Promise<SnapshotBuildResult> {
   const checks: SnapshotCheck[] = [];
 
-  if (options.snapshot.strategy !== "sanitized_copy") {
+  if (options.snapshot.strategy !== SnapshotStrategy.SanitizedCopy) {
     return {
       ok: false,
       checks: [
         {
-          code: "SNAPSHOT_STRATEGY_NOT_IMPLEMENTED",
-          severity: "error",
+          code: SnapshotCheckCode.StrategyNotImplemented,
+          severity: SnapshotCheckSeverity.Error,
           message: `Snapshot strategy '${options.snapshot.strategy}' is not implemented yet.`,
         },
       ],
+    };
+  }
+
+  const outputPathSafetyChecks = await validateSnapshotOutputPathSafety({
+    outputRootPath: options.output_root_path,
+    sourceRepoPath: options.source_repo_path,
+  });
+  if (outputPathSafetyChecks.length > 0) {
+    return {
+      ok: false,
+      checks: outputPathSafetyChecks,
     };
   }
 
@@ -51,10 +66,18 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
   checks.push(await verifyNoRealGitMetadata(agentSnapshotPath));
   checks.push(await createLfsPointerCheck(agentSnapshotPath, options.snapshot.git_lfs_handling));
   checks.push(...(await verifyHiddenEvaluationPaths(agentSnapshotPath, options.evaluation)));
+  checks.push(
+    ...(await verifyHiddenShiptestAssetPaths({
+      agentSnapshotPath,
+      sourceRepoPath: options.source_repo_path,
+      shiptestConfigDir: options.shiptest_config_dir,
+      evaluation: options.evaluation,
+    })),
+  );
 
   const sourceCommit = await resolveCommit(stagingCheckoutPath, "HEAD");
   const sourceTree = await resolveTree(stagingCheckoutPath, "HEAD");
-  const hasErrors = checks.some((check) => check.severity === "error");
+  const hasErrors = checks.some((check) => check.severity === SnapshotCheckSeverity.Error);
 
   if (hasErrors) {
     return {

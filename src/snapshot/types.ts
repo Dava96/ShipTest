@@ -1,10 +1,14 @@
 import type { ResolvedShiptestConfig } from "../config/schema.js";
+import type {
+  SnapshotCheckCode,
+  SnapshotCheckSeverity as SnapshotCheckSeverityValue,
+} from "./check-codes.js";
 
-export type SnapshotCheckSeverity = "pass" | "warning" | "error";
+export type { SnapshotCheckSeverity } from "./check-codes.js";
 
 export interface SnapshotCheck {
-  readonly code: string;
-  readonly severity: SnapshotCheckSeverity;
+  readonly code: SnapshotCheckCode;
+  readonly severity: SnapshotCheckSeverityValue;
   readonly message: string;
   readonly paths?: readonly string[];
 }
@@ -29,6 +33,7 @@ export interface BuildSnapshotOptions {
   readonly source_repo_path: string;
   readonly base_commit?: string;
   readonly output_root_path: string;
+  readonly shiptest_config_dir: string;
   readonly snapshot: ResolvedShiptestConfig["snapshot"];
   readonly agent_context: ResolvedShiptestConfig["benchmarks"][number]["agent_context"];
   readonly evaluation: ResolvedShiptestConfig["benchmarks"][number]["evaluation"];
