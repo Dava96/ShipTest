@@ -8,18 +8,20 @@ const id = nonEmptyString.regex(idPattern, {
     "IDs must start with a letter or number and only contain letters, numbers, dots, underscores, and hyphens",
 });
 
-export const EnvironmentSchema = z
+export const RepositoryEnvironmentSchema = z
   .object({
-    mode: z.enum(["single", "workload"]),
-    source: z.enum(["local", "dockerfile_target", "docker_image", "devcontainer", "compose"]),
-    dockerfile: nonEmptyString.optional(),
-    target: nonEmptyString.optional(),
+    execution_mode: z.enum(["single_container", "workload_container"]).default("single_container"),
+    source: z
+      .enum(["local", "dockerfile_target", "docker_image", "devcontainer", "compose"])
+      .default("local"),
+    dockerfile_path: nonEmptyString.optional(),
+    dockerfile_target: nonEmptyString.optional(),
     image: nonEmptyString.optional(),
     compose_file: nonEmptyString.optional(),
     service: nonEmptyString.optional(),
-    setup: z.array(nonEmptyString).default([]),
-    test: z.array(nonEmptyString).min(1),
-    secrets: z
+    setup_commands: z.array(nonEmptyString).default([]),
+    validation_commands: z.array(nonEmptyString).min(1),
+    required_secrets: z
       .object({
         setup: z.array(nonEmptyString).default([]),
         evaluation: z.array(nonEmptyString).default([]),
@@ -31,9 +33,13 @@ export const EnvironmentSchema = z
 
 export const SnapshotSchema = z
   .object({
-    strategy: z.enum(["materialized_checkout", "git_archive"]).default("materialized_checkout"),
-    lfs: z.enum(["detect", "required", "ignore"]).default("detect"),
-    submodules: z.enum(["fail_if_present", "recursive", "ignore"]).default("fail_if_present"),
+    strategy: z.enum(["sanitized_copy", "git_archive"]).default("sanitized_copy"),
+    git_lfs_handling: z
+      .enum(["fail_on_pointers", "download_lfs_files", "allow_pointer_files"])
+      .default("fail_on_pointers"),
+    submodule_handling: z
+      .enum(["fail_if_detected", "checkout_recursive", "leave_unchecked_out"])
+      .default("fail_if_detected"),
     strip_real_git_metadata: z.literal(true).default(true),
   })
   .strict()
@@ -100,8 +106,28 @@ export const AgentContextSchema = z
 
 export const HiddenEvaluationFileSchema = z
   .object({
-    from: nonEmptyString,
-    to: nonEmptyString,
+    shiptest_path: nonEmptyString,
+    repository_path: nonEmptyString,
+    write_mode: z.enum(["create_new", "replace_existing", "create_or_replace"]),
+  })
+  .strict();
+
+export const HiddenEvaluationDirectorySchema = z
+  .object({
+    shiptest_path: nonEmptyString,
+    repository_path: nonEmptyString,
+    write_mode: z.enum([
+      "create_new",
+      "replace_existing",
+      "merge_without_overwrite",
+      "merge_and_replace",
+    ]),
+  })
+  .strict();
+
+export const HiddenEvaluationPatchSchema = z
+  .object({
+    shiptest_path: nonEmptyString,
   })
   .strict();
 
@@ -109,9 +135,10 @@ export const EvaluationSchema = z
   .object({
     clean_room: z.literal(true).default(true),
     hidden_evaluation_files: z.array(HiddenEvaluationFileSchema).default([]),
-    hidden_evaluation_patches: z.array(nonEmptyString).default([]),
+    hidden_evaluation_directories: z.array(HiddenEvaluationDirectorySchema).default([]),
+    hidden_evaluation_patches: z.array(HiddenEvaluationPatchSchema).default([]),
     hidden_evaluation_patch_policy: z.literal("advanced_allow_collision_risk").optional(),
-    command: nonEmptyString,
+    scoring_command: nonEmptyString,
     dependency_changes: z.enum(["allow", "warn", "fail"]).default("warn"),
     rerun_setup_on_dependency_change: z.boolean().default(true),
   })
@@ -153,13 +180,14 @@ export const BenchmarkSchema = z
       }
       if (
         benchmark.evaluation.hidden_evaluation_files.length === 0 &&
+        benchmark.evaluation.hidden_evaluation_directories.length === 0 &&
         benchmark.evaluation.hidden_evaluation_patches.length === 0
       ) {
         context.addIssue({
           code: "custom",
           path: ["evaluation"],
           message:
-            "replay_change benchmarks must define hidden_evaluation_files or hidden_evaluation_patches",
+            "replay_change benchmarks must define hidden_evaluation_files, hidden_evaluation_directories, or hidden_evaluation_patches",
         });
       }
     }
@@ -174,7 +202,7 @@ export const ShiptestConfigSchema = z
         repo: nonEmptyString,
       })
       .strict(),
-    environment: EnvironmentSchema,
+    repository_environment: RepositoryEnvironmentSchema,
     snapshot: SnapshotSchema,
     shiptest_runner: ShiptestRunnerSchema,
     limits: LimitsSchema,

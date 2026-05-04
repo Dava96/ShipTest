@@ -19,5 +19,14 @@ export type {
   ShiptestRunResult,
   SnapshotResult,
 } from "./results/types.js";
+export { buildSnapshot } from "./snapshot/build-snapshot.js";
+export type {
+  BuildSnapshotOptions,
+  SnapshotBuildResult,
+  SnapshotCheck,
+  SnapshotCheckSeverity,
+  SnapshotManifest,
+  SnapshotManifestFile,
+} from "./snapshot/types.js";
 
 export const SHIPTEST_PROJECT_NAME = "ShipTest" as const;
