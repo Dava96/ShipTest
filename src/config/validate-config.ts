@@ -1,6 +1,8 @@
-import { access } from "node:fs/promises";
 import path from "node:path";
+
+import { isDirectory, isFile, pathExists } from "../utils/filesystem.js";
 import type { ValidationIssue } from "./errors.js";
+import { ConfigIssueCode } from "./issue-codes.js";
 import type { ShiptestConfigContext } from "./load-config.js";
 import {
   isSafeWorkspacePath,
@@ -8,45 +10,45 @@ import {
   resolveRepoRelativePath,
 } from "./paths.js";
 
-export async function validateResolvedConfig(
+export async function validateConfigReferences(
   context: ShiptestConfigContext,
 ): Promise<ValidationIssue[]> {
   const issues: ValidationIssue[] = [];
   const repoDir = resolveConfigRelativePath(context.configDir, context.config.project.repo);
 
-  await addFileExistsIssue(issues, "project.repo", repoDir, "PROJECT_REPO_NOT_FOUND");
+  await addPathExistsIssue(issues, "project.repo", repoDir, ConfigIssueCode.ProjectRepoNotFound);
 
-  if (context.config.environment.dockerfile) {
-    await addFileExistsIssue(
+  if (context.config.repository_environment.dockerfile_path) {
+    await addPathExistsIssue(
       issues,
-      "environment.dockerfile",
-      resolveRepoRelativePath(repoDir, context.config.environment.dockerfile),
-      "REFERENCED_FILE_NOT_FOUND",
+      "repository_environment.dockerfile_path",
+      resolveRepoRelativePath(repoDir, context.config.repository_environment.dockerfile_path),
+      ConfigIssueCode.ReferencedFileNotFound,
     );
   }
 
-  if (context.config.environment.compose_file) {
-    await addFileExistsIssue(
+  if (context.config.repository_environment.compose_file) {
+    await addPathExistsIssue(
       issues,
-      "environment.compose_file",
-      resolveRepoRelativePath(repoDir, context.config.environment.compose_file),
-      "REFERENCED_FILE_NOT_FOUND",
+      "repository_environment.compose_file",
+      resolveRepoRelativePath(repoDir, context.config.repository_environment.compose_file),
+      ConfigIssueCode.ReferencedFileNotFound,
     );
   }
 
   for (const [benchmarkIndex, benchmark] of context.config.benchmarks.entries()) {
     const benchmarkPath = `benchmarks[${benchmarkIndex}]`;
-    await addFileExistsIssue(
+    await addPathExistsIssue(
       issues,
       `${benchmarkPath}.task`,
       resolveConfigRelativePath(context.configDir, benchmark.task),
-      "REFERENCED_FILE_NOT_FOUND",
+      ConfigIssueCode.ReferencedFileNotFound,
     );
 
     for (const [excludeIndex, excludePath] of benchmark.agent_context.exclude_paths.entries()) {
       if (!isSafeWorkspacePath(excludePath)) {
         issues.push({
-          code: "UNSAFE_WORKSPACE_PATH",
+          code: ConfigIssueCode.UnsafeWorkspacePath,
           path: `${benchmarkPath}.agent_context.exclude_paths[${excludeIndex}]`,
           message: `Agent context exclude path must be relative and stay inside the workspace: ${excludePath}`,
         });
@@ -57,40 +59,54 @@ export async function validateResolvedConfig(
       fileIndex,
       instructionFile,
     ] of benchmark.agent_context.instruction_files.entries()) {
-      await addFileExistsIssue(
+      await addPathExistsIssue(
         issues,
         `${benchmarkPath}.agent_context.instruction_files[${fileIndex}]`,
         resolveConfigRelativePath(context.configDir, instructionFile),
-        "REFERENCED_FILE_NOT_FOUND",
+        ConfigIssueCode.ReferencedFileNotFound,
       );
     }
 
     for (const [fileIndex, hiddenFile] of benchmark.evaluation.hidden_evaluation_files.entries()) {
       await addFileExistsIssue(
         issues,
-        `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].from`,
-        resolveConfigRelativePath(context.configDir, hiddenFile.from),
-        "REFERENCED_FILE_NOT_FOUND",
+        `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].shiptest_path`,
+        resolveConfigRelativePath(context.configDir, hiddenFile.shiptest_path),
       );
 
-      if (!isSafeWorkspacePath(hiddenFile.to)) {
+      if (!isSafeWorkspacePath(hiddenFile.repository_path)) {
         issues.push({
-          code: "UNSAFE_WORKSPACE_PATH",
-          path: `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].to`,
-          message: `Hidden evaluation destination must be relative and stay inside the workspace: ${hiddenFile.to}`,
+          code: ConfigIssueCode.UnsafeWorkspacePath,
+          path: `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].repository_path`,
+          message: `Hidden evaluation repository path must be relative and stay inside the workspace: ${hiddenFile.repository_path}`,
         });
       }
     }
 
     for (const [
-      patchIndex,
-      patchPath,
-    ] of benchmark.evaluation.hidden_evaluation_patches.entries()) {
+      directoryIndex,
+      hiddenDirectory,
+    ] of benchmark.evaluation.hidden_evaluation_directories.entries()) {
+      await addDirectoryExistsIssue(
+        issues,
+        `${benchmarkPath}.evaluation.hidden_evaluation_directories[${directoryIndex}].shiptest_path`,
+        resolveConfigRelativePath(context.configDir, hiddenDirectory.shiptest_path),
+      );
+
+      if (!isSafeWorkspacePath(hiddenDirectory.repository_path)) {
+        issues.push({
+          code: ConfigIssueCode.UnsafeWorkspacePath,
+          path: `${benchmarkPath}.evaluation.hidden_evaluation_directories[${directoryIndex}].repository_path`,
+          message: `Hidden evaluation repository path must be relative and stay inside the workspace: ${hiddenDirectory.repository_path}`,
+        });
+      }
+    }
+
+    for (const [patchIndex, patch] of benchmark.evaluation.hidden_evaluation_patches.entries()) {
       await addFileExistsIssue(
         issues,
-        `${benchmarkPath}.evaluation.hidden_evaluation_patches[${patchIndex}]`,
-        resolveConfigRelativePath(context.configDir, patchPath),
-        "REFERENCED_FILE_NOT_FOUND",
+        `${benchmarkPath}.evaluation.hidden_evaluation_patches[${patchIndex}].shiptest_path`,
+        resolveConfigRelativePath(context.configDir, patch.shiptest_path),
       );
     }
   }
@@ -98,7 +114,7 @@ export async function validateResolvedConfig(
   return issues;
 }
 
-async function addFileExistsIssue(
+async function addPathExistsIssue(
   issues: ValidationIssue[],
   configPath: string,
   filePath: string,
@@ -108,16 +124,43 @@ async function addFileExistsIssue(
     issues.push({
       code,
       path: configPath,
-      message: `File does not exist: ${path.normalize(filePath)}`,
+      message: `Path does not exist: ${path.normalize(filePath)}`,
     });
   }
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
+async function addFileExistsIssue(
+  issues: ValidationIssue[],
+  configPath: string,
+  filePath: string,
+): Promise<void> {
+  if (await isFile(filePath)) {
+    return;
   }
+
+  issues.push({
+    code: ConfigIssueCode.ReferencedFileNotFound,
+    path: configPath,
+    message: (await pathExists(filePath))
+      ? `Path is not a file: ${path.normalize(filePath)}`
+      : `File does not exist: ${path.normalize(filePath)}`,
+  });
+}
+
+async function addDirectoryExistsIssue(
+  issues: ValidationIssue[],
+  configPath: string,
+  directoryPath: string,
+): Promise<void> {
+  if (await isDirectory(directoryPath)) {
+    return;
+  }
+
+  issues.push({
+    code: ConfigIssueCode.ReferencedDirectoryNotFound,
+    path: configPath,
+    message: (await pathExists(directoryPath))
+      ? `Path is not a directory: ${path.normalize(directoryPath)}`
+      : `Directory does not exist: ${path.normalize(directoryPath)}`,
+  });
 }

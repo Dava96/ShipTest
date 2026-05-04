@@ -15,7 +15,9 @@ describe("ShipTest project exports", () => {
     const workspace = await createFixtureWorkspace();
     const config = await loadShiptestConfig(path.join(workspace, "shiptest.yaml"));
 
-    expect(config.snapshot.strategy).toBe("materialized_checkout");
+    expect(config.snapshot.strategy).toBe("sanitized_copy");
+    expect(config.snapshot.git_lfs_handling).toBe("fail_on_pointers");
+    expect(config.snapshot.submodule_handling).toBe("fail_if_detected");
     expect(config.shiptest_runner.validated_baseline).toEqual({ enabled: true, cache: true });
     expect(config.limits.max_runtime_minutes).toBe(30);
     expect(config.benchmarks[0]?.type).toBe("replay_change");
@@ -34,7 +36,7 @@ describe("ShipTest project exports", () => {
   });
 
   it("rejects unsafe hidden evaluation destinations", async () => {
-    const workspace = await createFixtureWorkspace({ hiddenDestination: "../leak.test.ts" });
+    const workspace = await createFixtureWorkspace({ hiddenRepositoryPath: "../leak.test.ts" });
 
     await expect(loadShiptestConfig(path.join(workspace, "shiptest.yaml"))).rejects.toMatchObject({
       issues: [
@@ -48,7 +50,7 @@ describe("ShipTest project exports", () => {
 
 interface FixtureOptions {
   readonly benchmarkModel?: string;
-  readonly hiddenDestination?: string;
+  readonly hiddenRepositoryPath?: string;
 }
 
 async function createFixtureWorkspace(options: FixtureOptions = {}): Promise<string> {
@@ -58,11 +60,12 @@ async function createFixtureWorkspace(options: FixtureOptions = {}): Promise<str
   await mkdir(fixture, { recursive: true });
   const repo = path.join(fixture, "repo");
   await mkdir(path.join(fixture, "tasks"), { recursive: true });
-  await mkdir(path.join(fixture, "hidden"), { recursive: true });
+  await mkdir(path.join(fixture, "hidden", "fixtures"), { recursive: true });
   await mkdir(repo, { recursive: true });
   await writeFile(path.join(repo, "Dockerfile"), "FROM node:22\n", "utf8");
   await writeFile(path.join(fixture, "tasks", "invoice.md"), "Fix invoice rounding.\n", "utf8");
   await writeFile(path.join(fixture, "hidden", "invoice.test.ts"), "// hidden test\n", "utf8");
+  await writeFile(path.join(fixture, "hidden", "fixtures", "invoice.json"), "{}\n", "utf8");
 
   await writeFile(
     path.join(fixture, "shiptest.yaml"),
@@ -70,14 +73,14 @@ async function createFixtureWorkspace(options: FixtureOptions = {}): Promise<str
 project:
   name: payments-api
   repo: repo
-environment:
-  mode: workload
+repository_environment:
+  commands_run_in: repository_environment
   source: dockerfile_target
-  dockerfile: Dockerfile
-  target: test
-  setup:
+  dockerfile_path: Dockerfile
+  dockerfile_target: test
+  setup_commands:
     - npm ci
-  test:
+  validation_commands:
     - npm test
 models:
   - id: sonnet-4.5
@@ -96,9 +99,14 @@ benchmarks:
         - "**/CLAUDE.md"
     evaluation:
       hidden_evaluation_files:
-        - from: hidden/invoice.test.ts
-          to: ${options.hiddenDestination ?? "tests/invoice.test.ts"}
-      command: npm test -- tests/invoice.test.ts
+        - shiptest_path: hidden/invoice.test.ts
+          repository_path: ${options.hiddenRepositoryPath ?? "tests/invoice.test.ts"}
+          write_mode: create_new
+      hidden_evaluation_directories:
+        - shiptest_path: hidden/fixtures
+          repository_path: tests/fixtures/invoice
+          write_mode: create_new
+      scoring_command: npm test -- tests/invoice.test.ts
 `,
     "utf8",
   );

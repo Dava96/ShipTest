@@ -1,0 +1,58 @@
+version: 1
+
+project:
+  name: shiptest
+  repo: ..
+
+repository_environment:
+  commands_run_in: shiptest_environment
+  source: local
+  setup_commands:
+    - npm ci
+  validation_commands:
+    - npm run test:run
+  teardown_commands: []
+
+snapshot:
+  strategy: sanitized_copy
+  git_lfs_handling: fail_on_pointers
+  submodule_handling: fail_if_detected
+  strip_real_git_metadata: true
+
+shiptest_runner:
+  clean_git_repo:
+    enabled: true
+  validated_baseline:
+    enabled: true
+    cache: true
+
+limits:
+  max_runtime_minutes: 30
+  max_turns: 40
+  max_tool_calls: 200
+  max_total_tokens: 350000
+
+models:
+  - id: sonnet-4.5
+    provider: anthropic
+    model: claude-sonnet-4.5
+
+benchmarks:
+  - id: cli-validation-smoke
+    type: implementation
+    task: tasks/shiptest-smoke.md
+    attempts: 1
+    agent_context:
+      # AGENTS.md and CLAUDE.md are included by default. Exclude only generated ShipTest artifacts.
+      exclude_paths:
+        - ".shiptest/**"
+        - "dist/**"
+      instruction_files: []
+    evaluation:
+      clean_room: true
+      scoring_command: npm run test:run
+      hidden_evaluation_files: []
+      hidden_evaluation_directories: []
+      hidden_evaluation_patches: []
+      dependency_changes: warn
+      rerun_setup_on_dependency_change: true
