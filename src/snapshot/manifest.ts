@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { walkFiles } from "../utils/filesystem.js";
+import { WalkEntryResult, walkEntries } from "../utils/filesystem.js";
 import type { SnapshotManifest, SnapshotManifestFile } from "./types.js";
 
 export async function createSnapshotManifest(options: {
@@ -30,16 +30,27 @@ export async function createSnapshotManifest(options: {
 
 async function collectManifestFiles(snapshotPath: string): Promise<SnapshotManifestFile[]> {
   const files: SnapshotManifestFile[] = [];
-  await walkFiles(snapshotPath, async (filePath) => {
-    const fileStat = await stat(filePath);
-    const content = await readFile(filePath);
+
+  await walkEntries(snapshotPath, async (entryPath, entryName) => {
+    if (entryName === ".git") {
+      return WalkEntryResult.Skip;
+    }
+
+    const fileStat = await stat(entryPath);
+    if (!fileStat.isFile()) {
+      return WalkEntryResult.Continue;
+    }
+
+    const content = await readFile(entryPath);
     files.push({
-      repository_path: path.relative(snapshotPath, filePath).replaceAll(path.sep, "/"),
+      repository_path: path.relative(snapshotPath, entryPath).replaceAll(path.sep, "/"),
       size_bytes: fileStat.size,
       sha256: sha256Buffer(content),
       executable: (fileStat.mode & 0o111) !== 0,
     });
+    return WalkEntryResult.Continue;
   });
+
   return files.sort((left, right) => left.repository_path.localeCompare(right.repository_path));
 }
 

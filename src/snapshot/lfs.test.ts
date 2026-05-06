@@ -2,9 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { hasGitLfs } from "../utils/git.js";
 import { SnapshotCheckCode } from "./check-codes.js";
-
-import { hasGitLfs } from "./git.js";
 import { createLfsPointerCheck, findLfsPointerFiles, handleGitLfs } from "./lfs.js";
 
 describe("Git LFS snapshot handling", () => {

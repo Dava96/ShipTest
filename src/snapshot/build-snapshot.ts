@@ -2,8 +2,8 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { SnapshotStrategy } from "../config/schema-values.js";
+import { git, resolveCommit, resolveTree } from "../utils/git.js";
 import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
-import { git, resolveCommit, resolveTree } from "./git.js";
 import { verifyHiddenShiptestAssetPaths } from "./hidden-assets.js";
 import { createLfsPointerCheck, handleGitLfs } from "./lfs.js";
 import { createSnapshotManifest } from "./manifest.js";

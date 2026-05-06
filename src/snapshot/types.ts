@@ -1,14 +1,12 @@
+import type { CheckSeverity } from "../checks/severity.js";
 import type { ResolvedShiptestConfig } from "../config/schema.js";
-import type {
-  SnapshotCheckCode,
-  SnapshotCheckSeverity as SnapshotCheckSeverityValue,
-} from "./check-codes.js";
+import type { SnapshotCheckCode } from "./check-codes.js";
 
-export type { SnapshotCheckSeverity } from "./check-codes.js";
+export type { CheckSeverity } from "../checks/severity.js";
 
 export interface SnapshotCheck {
   readonly code: SnapshotCheckCode;
-  readonly severity: SnapshotCheckSeverityValue;
+  readonly severity: CheckSeverity;
   readonly message: string;
   readonly paths?: readonly string[];
 }

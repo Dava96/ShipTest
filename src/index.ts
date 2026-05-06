@@ -1,3 +1,22 @@
+export type { PreparedBaselineCheck } from "./baseline/check-codes.js";
+export { PreparedBaselineCheckCode } from "./baseline/check-codes.js";
+export type { CleanGitRepoOptions, CleanGitRepoResult } from "./baseline/clean-git-repo.js";
+export { CleanGitRepoDefaults, initializeCleanGitRepo } from "./baseline/clean-git-repo.js";
+export type {
+  PrepareBaselineFromWorkspaceOptions,
+  PreparedBaselineCacheKeyInput,
+  PreparedBaselineFailure,
+  PreparedBaselineMetadata,
+  PreparedBaselineResult,
+  PreparedBaselineSuccess,
+} from "./baseline/prepared-baseline.js";
+export {
+  createPreparedBaselineCacheKey,
+  getPreparedBaselineCacheEntryPath,
+  prepareBaselineFromWorkspace,
+} from "./baseline/prepared-baseline.js";
+export type { CheckSeverity as CheckSeverityValue } from "./checks/severity.js";
+export { CheckSeverity } from "./checks/severity.js";
 export type { ShiptestConfigContext } from "./config/load-config.js";
 export { loadShiptestConfig, loadShiptestConfigContext } from "./config/load-config.js";
 export type { ResolvedShiptestConfig, ShiptestConfig } from "./config/schema.js";
@@ -52,5 +71,17 @@ export type {
   SnapshotManifest,
   SnapshotManifestFile,
 } from "./snapshot/types.js";
+export { applySubmissionDiff } from "./submission/apply.js";
+export { SubmissionCheckCode } from "./submission/check-codes.js";
+export { extractSubmission } from "./submission/extract.js";
+export { createWorkspaceManifestDiff } from "./submission/manifest-diff.js";
+export type {
+  Submission,
+  SubmissionApplyResult,
+  SubmissionCheck,
+  SubmissionExtractionResult,
+  WorkspaceManifestDiff,
+  WorkspaceManifestFileChange,
+} from "./submission/types.js";
 
 export const SHIPTEST_PROJECT_NAME = "ShipTest" as const;

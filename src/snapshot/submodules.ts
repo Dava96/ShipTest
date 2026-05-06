@@ -2,8 +2,8 @@ import path from "node:path";
 
 import { SubmoduleHandling } from "../config/schema-values.js";
 import { pathExists } from "../utils/filesystem.js";
+import { defaultGitOperations, type GitOperations } from "../utils/git.js";
 import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
-import { defaultGitOperations, type GitOperations } from "./git.js";
 import type { SnapshotCheck } from "./types.js";
 
 export async function handleSubmodules(
