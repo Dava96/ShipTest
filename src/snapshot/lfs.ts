@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { GitLfsHandling } from "../config/schema-values.js";
 import { walkFiles } from "../utils/filesystem.js";
+import { defaultGitOperations, type GitOperations } from "../utils/git.js";
 import { SnapshotCheckCode, SnapshotCheckSeverity } from "./check-codes.js";
-import { defaultGitOperations, type GitOperations } from "./git.js";
 import type { SnapshotCheck } from "./types.js";
 
 const lfsPointerPrefix = "version https://git-lfs.github.com/spec/v1";

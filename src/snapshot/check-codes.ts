@@ -1,11 +1,8 @@
-export const SnapshotCheckSeverity = {
-  Error: "error",
-  Pass: "pass",
-  Warning: "warning",
-} as const;
+import type { CheckSeverity as CheckSeverityValue } from "../checks/severity.js";
+import { CheckSeverity } from "../checks/severity.js";
 
-export type SnapshotCheckSeverity =
-  (typeof SnapshotCheckSeverity)[keyof typeof SnapshotCheckSeverity];
+export const SnapshotCheckSeverity = CheckSeverity;
+export type SnapshotCheckSeverity = CheckSeverityValue;
 
 export const SnapshotCheckCode = {
   AgentContextExclusionsApplied: "SNAPSHOT_AGENT_CONTEXT_EXCLUSIONS_APPLIED",

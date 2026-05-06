@@ -22,7 +22,7 @@ snapshot:
 shiptest_runner:
   clean_git_repo:
     enabled: true
-  validated_baseline:
+  prepared_baseline:
     enabled: true
     cache: true
 

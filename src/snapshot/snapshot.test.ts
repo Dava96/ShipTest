@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ShiptestConfigContext } from "../config/load-config.js";
+import { git } from "../utils/git.js";
 import { buildSnapshot } from "./build-snapshot.js";
 import { SnapshotCheckCode } from "./check-codes.js";
-import { git } from "./git.js";
 import { createBuildSnapshotOptions } from "./options.js";
 import type { BuildSnapshotOptions } from "./types.js";
 
@@ -88,7 +88,7 @@ describe("buildSnapshot", () => {
         snapshot: baseSnapshotOptions(fixture).snapshot,
         shiptest_runner: {
           clean_git_repo: { enabled: true },
-          validated_baseline: { enabled: true, cache: true },
+          prepared_baseline: { enabled: true, cache: true },
         },
         limits: {
           max_runtime_minutes: 30,

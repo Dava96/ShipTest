@@ -92,7 +92,7 @@ export const ShiptestRunnerSchema = z
       })
       .strict()
       .prefault({}),
-    validated_baseline: z
+    prepared_baseline: z
       .object({
         enabled: z.literal(true).default(true),
         cache: z.boolean().default(true),
