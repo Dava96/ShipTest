@@ -36,6 +36,16 @@ export interface PreparedBaselineCacheKeyInput {
   readonly shiptest_version: string;
 }
 
+export interface PreparedBaselineTimings {
+  readonly total_ms: number;
+  readonly cache_lookup_ms: number;
+  readonly cache_restore_ms: number;
+  readonly copy_source_ms: number;
+  readonly clean_git_ms: number;
+  readonly size_scan_ms: number;
+  readonly cache_save_ms: number;
+}
+
 export interface PreparedBaselineMetadata {
   readonly schema_version: 1;
   readonly cache_key: string;
@@ -65,6 +75,7 @@ export interface PreparedBaselineSuccess {
   readonly cache_entry_path?: string;
   readonly metadata: PreparedBaselineMetadata;
   readonly checks: readonly PreparedBaselineCheck[];
+  readonly timings_ms: PreparedBaselineTimings;
 }
 
 export interface PreparedBaselineFailure {
@@ -72,6 +83,15 @@ export interface PreparedBaselineFailure {
   readonly prepared_workspace_path: string;
   readonly cache_hit: false;
   readonly checks: readonly PreparedBaselineCheck[];
+  readonly timings_ms: PreparedBaselineTimings;
+}
+
+export interface RestorePreparedBaselineFromCacheOptions {
+  readonly preparedWorkspacePath: string;
+  readonly cacheRootPath: string;
+  readonly cacheKeyInput: PreparedBaselineCacheKeyInput;
+  readonly cacheLabel?: string;
+  readonly overwrite?: boolean;
 }
 
 export interface PrepareBaselineFromWorkspaceOptions {
@@ -86,6 +106,24 @@ export interface PrepareBaselineFromWorkspaceOptions {
   readonly gitOperations?: GitOperations;
 }
 
+export type RestorePreparedBaselineFromCacheResult =
+  | RestorePreparedBaselineFromCacheSuccess
+  | RestorePreparedBaselineFromCacheMiss;
+
+export interface RestorePreparedBaselineFromCacheSuccess {
+  readonly ok: true;
+  readonly prepared_workspace_path: string;
+  readonly cache_entry_path: string;
+  readonly metadata: PreparedBaselineMetadata;
+  readonly checks: readonly PreparedBaselineCheck[];
+}
+
+export interface RestorePreparedBaselineFromCacheMiss {
+  readonly ok: false;
+  readonly prepared_workspace_path: string;
+  readonly checks: readonly PreparedBaselineCheck[];
+}
+
 interface CacheEntryLookupResult {
   readonly entryPath: string;
   readonly metadata: PreparedBaselineMetadata;
@@ -97,6 +135,102 @@ export function createPreparedBaselineCacheKey(input: PreparedBaselineCacheKeyIn
     schema_version: PreparedBaselineDefaults.CacheSchemaVersion,
     ...input,
   });
+}
+
+export async function restorePreparedBaselineFromCache(
+  options: RestorePreparedBaselineFromCacheOptions,
+): Promise<RestorePreparedBaselineFromCacheResult> {
+  const checks: PreparedBaselineCheck[] = [];
+  const cacheKey = createPreparedBaselineCacheKey(options.cacheKeyInput);
+  const label = sanitizeCacheLabel(options.cacheLabel ?? PreparedBaselineDefaults.DefaultLabel);
+
+  if (await pathExists(options.preparedWorkspacePath)) {
+    if (!options.overwrite) {
+      return {
+        ok: false,
+        prepared_workspace_path: options.preparedWorkspacePath,
+        checks: [
+          {
+            code: PreparedBaselineCheckCode.DestinationExists,
+            severity: CheckSeverity.Error,
+            message: `Prepared baseline destination already exists: ${options.preparedWorkspacePath}`,
+          },
+        ],
+      };
+    }
+    await removePreparedWorkspacePath(options.preparedWorkspacePath);
+  }
+
+  const invalidCacheEntryPaths: string[] = [];
+  const cacheEntry = await findPreparedBaselineCacheEntry(
+    options.cacheRootPath,
+    cacheKey,
+    invalidCacheEntryPaths,
+  );
+  for (const invalidCacheEntryPath of invalidCacheEntryPaths) {
+    checks.push({
+      code: PreparedBaselineCheckCode.CacheEntryInvalid,
+      severity: CheckSeverity.Warning,
+      message: "Ignored invalid prepared baseline cache entry.",
+      paths: [invalidCacheEntryPath],
+    });
+  }
+
+  if (!cacheEntry) {
+    return {
+      ok: false,
+      prepared_workspace_path: options.preparedWorkspacePath,
+      checks: [
+        ...checks,
+        {
+          code: PreparedBaselineCheckCode.CacheRequiredMiss,
+          severity: CheckSeverity.Warning,
+          message: "Prepared baseline cache entry was not found.",
+        },
+      ],
+    };
+  }
+
+  try {
+    await restoreCacheEntry(cacheEntry.entryPath, options.preparedWorkspacePath);
+    const metadata = await updateCacheEntryUsage(cacheEntry.entryPath, cacheEntry.metadata, label);
+    return {
+      ok: true,
+      prepared_workspace_path: options.preparedWorkspacePath,
+      cache_entry_path: cacheEntry.entryPath,
+      metadata,
+      checks: [
+        ...checks,
+        {
+          code: PreparedBaselineCheckCode.CacheHit,
+          severity: CheckSeverity.Pass,
+          message: "Prepared baseline cache hit.",
+          paths: [cacheEntry.entryPath],
+        },
+        {
+          code: PreparedBaselineCheckCode.CacheRestored,
+          severity: CheckSeverity.Pass,
+          message: "Restored prepared baseline from cache.",
+          paths: [cacheEntry.entryPath],
+        },
+      ],
+    };
+  } catch (error) {
+    await removePreparedWorkspacePath(options.preparedWorkspacePath);
+    return {
+      ok: false,
+      prepared_workspace_path: options.preparedWorkspacePath,
+      checks: [
+        ...checks,
+        {
+          code: PreparedBaselineCheckCode.CacheRestoreFailed,
+          severity: CheckSeverity.Warning,
+          message: `Prepared baseline cache restore failed. ${formatError(error)}`,
+          paths: [cacheEntry.entryPath],
+        },
+      ],
+    };
+  }
 }
 
 export function getPreparedBaselineCacheEntryPath(
@@ -115,6 +249,8 @@ export function getPreparedBaselineCacheEntryPath(
 export async function prepareBaselineFromWorkspace(
   options: PrepareBaselineFromWorkspaceOptions,
 ): Promise<PreparedBaselineResult> {
+  const startedAt = Date.now();
+  const timings = createEmptyPreparedBaselineTimings();
   const checks: PreparedBaselineCheck[] = [];
   const gitOperations = options.gitOperations ?? defaultGitOperations;
   const cacheEnabled = options.cacheEnabled ?? true;
@@ -122,7 +258,7 @@ export async function prepareBaselineFromWorkspace(
   const label = sanitizeCacheLabel(options.cacheLabel ?? PreparedBaselineDefaults.DefaultLabel);
 
   if (preparedBaselinePathsOverlap(options.sourceWorkspacePath, options.preparedWorkspacePath)) {
-    return failure(options.preparedWorkspacePath, checks, {
+    return failure(options.preparedWorkspacePath, timings, startedAt, checks, {
       code: PreparedBaselineCheckCode.InvalidPaths,
       severity: CheckSeverity.Error,
       message:
@@ -131,7 +267,7 @@ export async function prepareBaselineFromWorkspace(
   }
 
   if (!(await isDirectory(options.sourceWorkspacePath))) {
-    return failure(options.preparedWorkspacePath, checks, {
+    return failure(options.preparedWorkspacePath, timings, startedAt, checks, {
       code: PreparedBaselineCheckCode.SourceMissing,
       severity: CheckSeverity.Error,
       message: `Prepared baseline source workspace does not exist: ${options.sourceWorkspacePath}`,
@@ -140,7 +276,7 @@ export async function prepareBaselineFromWorkspace(
 
   if (await pathExists(options.preparedWorkspacePath)) {
     if (!options.overwrite) {
-      return failure(options.preparedWorkspacePath, checks, {
+      return failure(options.preparedWorkspacePath, timings, startedAt, checks, {
         code: PreparedBaselineCheckCode.DestinationExists,
         severity: CheckSeverity.Error,
         message: `Prepared baseline destination already exists: ${options.preparedWorkspacePath}`,
@@ -150,7 +286,7 @@ export async function prepareBaselineFromWorkspace(
   }
 
   if (cacheEnabled && !options.cacheRootPath) {
-    return failure(options.preparedWorkspacePath, checks, {
+    return failure(options.preparedWorkspacePath, timings, startedAt, checks, {
       code: PreparedBaselineCheckCode.CacheRestoreFailed,
       severity: CheckSeverity.Error,
       message: "Prepared baseline cache is enabled but no cacheRootPath was provided.",
@@ -158,11 +294,10 @@ export async function prepareBaselineFromWorkspace(
   }
 
   if (cacheEnabled && options.cacheRootPath) {
+    const cacheRootPath = options.cacheRootPath;
     const invalidCacheEntryPaths: string[] = [];
-    const cacheEntry = await findPreparedBaselineCacheEntry(
-      options.cacheRootPath,
-      cacheKey,
-      invalidCacheEntryPaths,
+    const cacheEntry = await measurePreparedBaselineTiming(timings, "cache_lookup_ms", () =>
+      findPreparedBaselineCacheEntry(cacheRootPath, cacheKey, invalidCacheEntryPaths),
     );
     for (const invalidCacheEntryPath of invalidCacheEntryPaths) {
       checks.push({
@@ -180,7 +315,9 @@ export async function prepareBaselineFromWorkspace(
         paths: [cacheEntry.entryPath],
       });
       try {
-        await restoreCacheEntry(cacheEntry.entryPath, options.preparedWorkspacePath);
+        await measurePreparedBaselineTiming(timings, "cache_restore_ms", () =>
+          restoreCacheEntry(cacheEntry.entryPath, options.preparedWorkspacePath),
+        );
         const metadata = await updateCacheEntryUsage(
           cacheEntry.entryPath,
           cacheEntry.metadata,
@@ -199,6 +336,7 @@ export async function prepareBaselineFromWorkspace(
           cache_entry_path: cacheEntry.entryPath,
           metadata,
           checks,
+          timings_ms: finishPreparedBaselineTimings(timings, startedAt),
         };
       } catch (error) {
         checks.push({
@@ -225,13 +363,17 @@ export async function prepareBaselineFromWorkspace(
   }
 
   try {
-    await cp(options.sourceWorkspacePath, options.preparedWorkspacePath, {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
-    const cleanGitRepoResult = await initializeCleanGitRepo(options.preparedWorkspacePath, {
-      gitOperations,
-    });
+    await measurePreparedBaselineTiming(timings, "copy_source_ms", () =>
+      cp(options.sourceWorkspacePath, options.preparedWorkspacePath, {
+        recursive: true,
+        verbatimSymlinks: true,
+      }),
+    );
+    const cleanGitRepoResult = await measurePreparedBaselineTiming(timings, "clean_git_ms", () =>
+      initializeCleanGitRepo(options.preparedWorkspacePath, {
+        gitOperations,
+      }),
+    );
     checks.push(...cleanGitRepoResult.checks);
     if (
       !cleanGitRepoResult.ok ||
@@ -243,6 +385,7 @@ export async function prepareBaselineFromWorkspace(
         prepared_workspace_path: options.preparedWorkspacePath,
         cache_hit: false,
         checks,
+        timings_ms: finishPreparedBaselineTimings(timings, startedAt),
       };
     }
 
@@ -259,7 +402,9 @@ export async function prepareBaselineFromWorkspace(
       source_commit: options.snapshotManifest.source_commit,
       source_tree: options.snapshotManifest.source_tree,
       file_count: options.snapshotManifest.files.length,
-      size_bytes: await directorySizeBytes(options.preparedWorkspacePath),
+      size_bytes: await measurePreparedBaselineTiming(timings, "size_scan_ms", () =>
+        directorySizeBytes(options.preparedWorkspacePath),
+      ),
       clean_git_repo: {
         enabled: true,
         branch: cleanGitRepoResult.branch,
@@ -275,14 +420,17 @@ export async function prepareBaselineFromWorkspace(
 
     let cacheEntryPath: string | undefined;
     if (cacheEnabled && options.cacheRootPath) {
+      const cacheRootPath = options.cacheRootPath;
       try {
-        cacheEntryPath = await savePreparedBaselineToCache({
-          cacheRootPath: options.cacheRootPath,
-          cacheKey,
-          label,
-          workspacePath: options.preparedWorkspacePath,
-          metadata,
-        });
+        cacheEntryPath = await measurePreparedBaselineTiming(timings, "cache_save_ms", () =>
+          savePreparedBaselineToCache({
+            cacheRootPath,
+            cacheKey,
+            label,
+            workspacePath: options.preparedWorkspacePath,
+            metadata,
+          }),
+        );
         checks.push({
           code: PreparedBaselineCheckCode.CacheSaved,
           severity: CheckSeverity.Pass,
@@ -305,9 +453,10 @@ export async function prepareBaselineFromWorkspace(
       ...(cacheEntryPath ? { cache_entry_path: cacheEntryPath } : {}),
       metadata,
       checks,
+      timings_ms: finishPreparedBaselineTimings(timings, startedAt),
     };
   } catch (error) {
-    return failure(options.preparedWorkspacePath, checks, {
+    return failure(options.preparedWorkspacePath, timings, startedAt, checks, {
       code: PreparedBaselineCheckCode.Created,
       severity: CheckSeverity.Error,
       message: `Failed to create prepared baseline. ${formatError(error)}`,
@@ -495,6 +644,45 @@ function preparedBaselinePathsOverlap(
   );
 }
 
+type MutablePreparedBaselineTimings = {
+  -readonly [Key in keyof PreparedBaselineTimings]: PreparedBaselineTimings[Key];
+};
+
+function createEmptyPreparedBaselineTimings(): MutablePreparedBaselineTimings {
+  return {
+    total_ms: 0,
+    cache_lookup_ms: 0,
+    cache_restore_ms: 0,
+    copy_source_ms: 0,
+    clean_git_ms: 0,
+    size_scan_ms: 0,
+    cache_save_ms: 0,
+  };
+}
+
+async function measurePreparedBaselineTiming<T>(
+  timings: MutablePreparedBaselineTimings,
+  key: Exclude<keyof PreparedBaselineTimings, "total_ms">,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    timings[key] += Date.now() - startedAt;
+  }
+}
+
+function finishPreparedBaselineTimings(
+  timings: MutablePreparedBaselineTimings,
+  startedAt: number,
+): PreparedBaselineTimings {
+  return {
+    ...timings,
+    total_ms: Date.now() - startedAt,
+  };
+}
+
 function sanitizeCacheLabel(label: string): string {
   const sanitized = label
     .trim()
@@ -511,6 +699,8 @@ function shortCacheKey(cacheKey: string): string {
 
 function failure(
   preparedWorkspacePath: string,
+  timings: MutablePreparedBaselineTimings,
+  startedAt: number,
   checks: PreparedBaselineCheck[],
   check: PreparedBaselineCheck,
 ): PreparedBaselineFailure {
@@ -519,6 +709,7 @@ function failure(
     prepared_workspace_path: preparedWorkspacePath,
     cache_hit: false,
     checks: [...checks, check],
+    timings_ms: finishPreparedBaselineTimings(timings, startedAt),
   };
 }
 

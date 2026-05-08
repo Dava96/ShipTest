@@ -154,7 +154,7 @@ describe("config loading and validation", () => {
         ...baseConfig,
         repository_environment: {
           source: "dockerfile_target",
-          validation_commands: ["npm test"],
+          validation_commands: { required: ["npm test"] },
         },
       }).success,
     ).toBe(false);
@@ -163,7 +163,7 @@ describe("config loading and validation", () => {
         ...baseConfig,
         repository_environment: {
           source: "docker_image",
-          validation_commands: ["npm test"],
+          validation_commands: { required: ["npm test"] },
         },
       }).success,
     ).toBe(false);
@@ -173,7 +173,7 @@ describe("config loading and validation", () => {
         repository_environment: {
           source: "compose",
           compose_file: "compose.yaml",
-          validation_commands: ["npm test"],
+          validation_commands: { required: ["npm test"] },
         },
       }).success,
     ).toBe(false);
@@ -182,7 +182,7 @@ describe("config loading and validation", () => {
         ...baseConfig,
         repository_environment: {
           source: "devcontainer",
-          validation_commands: ["npm test"],
+          validation_commands: { required: ["npm test"] },
         },
       }).success,
     ).toBe(false);
@@ -193,7 +193,7 @@ describe("config loading and validation", () => {
           commands_run_in: "repository_environment",
           source: "scripts",
           setup_commands: ["./install.sh"],
-          validation_commands: ["./test.sh --filter invoice"],
+          validation_commands: { required: ["./test.sh --filter invoice"] },
           teardown_commands: ["./stop.sh"],
         },
       }).success,
@@ -205,7 +205,7 @@ describe("config loading and validation", () => {
       ShiptestConfigSchema.safeParse({
         version: 1,
         project: { name: "p", repo: "." },
-        repository_environment: { validation_commands: ["npm test"] },
+        repository_environment: { validation_commands: { required: ["npm test"] } },
         models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
         benchmarks: [
           {
@@ -227,7 +227,7 @@ describe("config loading and validation", () => {
       ShiptestConfigSchema.safeParse({
         version: 1,
         project: { name: "p", repo: "." },
-        repository_environment: { validation_commands: ["npm test"] },
+        repository_environment: { validation_commands: { required: ["npm test"] } },
         models: [
           { id: "same", provider: "openai", model: "gpt" },
           { id: "same", provider: "anthropic", model: "claude" },
@@ -308,7 +308,8 @@ repository_environment:
   dockerfile_target: test
   compose_file: ${options.composeFile ?? "compose.yaml"}
   validation_commands:
-    - npm test
+    required:
+      - npm test
 models:
   - id: sonnet
     provider: anthropic

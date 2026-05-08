@@ -47,3 +47,4 @@ results/
 # Local project notes/assets
 /adrs/
 AGENTS.md
+/.shiptest/

@@ -10,7 +10,9 @@ repository_environment:
   setup_commands:
     - npm ci
   validation_commands:
-    - npm run test:run
+    required:
+      - npm run test:run
+    advisory: []
   teardown_commands: []
 
 snapshot:

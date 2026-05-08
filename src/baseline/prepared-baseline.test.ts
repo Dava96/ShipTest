@@ -14,7 +14,10 @@ import {
 
 const baseCacheKeyInput: PreparedBaselineCacheKeyInput = {
   snapshot_manifest_sha256: "snapshot",
-  repository_environment: { setup_commands: ["npm ci"], validation_commands: ["npm test"] },
+  repository_environment: {
+    setup_commands: ["npm ci"],
+    validation_commands: { required: ["npm test"] },
+  },
   prepared_baseline: { cache: true, enabled: true },
   shiptest_version: "0.1.0",
 };
@@ -25,7 +28,10 @@ describe("createPreparedBaselineCacheKey", () => {
     const right = createPreparedBaselineCacheKey({
       shiptest_version: "0.1.0",
       prepared_baseline: { enabled: true, cache: true },
-      repository_environment: { validation_commands: ["npm test"], setup_commands: ["npm ci"] },
+      repository_environment: {
+        validation_commands: { required: ["npm test"] },
+        setup_commands: ["npm ci"],
+      },
       snapshot_manifest_sha256: "snapshot",
     });
 

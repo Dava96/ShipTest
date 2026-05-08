@@ -81,7 +81,8 @@ repository_environment:
   setup_commands:
     - npm ci
   validation_commands:
-    - npm test
+    required:
+      - npm test
 models:
   - id: sonnet-4.5
     provider: anthropic
