@@ -45,7 +45,12 @@ export const RepositoryEnvironmentSchema = z
     service: nonEmptyString.optional(),
     devcontainer_path: nonEmptyString.optional(),
     setup_commands: z.array(nonEmptyString).default([]),
-    validation_commands: z.array(nonEmptyString).min(1),
+    validation_commands: z
+      .object({
+        required: z.array(nonEmptyString).min(1),
+        advisory: z.array(nonEmptyString).default([]),
+      })
+      .strict(),
     teardown_commands: z.array(nonEmptyString).default([]),
     required_secrets: z
       .object({

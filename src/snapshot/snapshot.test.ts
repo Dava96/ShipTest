@@ -81,7 +81,7 @@ describe("buildSnapshot", () => {
           commands_run_in: "shiptest_environment",
           source: "local",
           setup_commands: [],
-          validation_commands: ["npm test"],
+          validation_commands: { required: ["npm test"], advisory: [] },
           teardown_commands: [],
           required_secrets: { setup: [], evaluation: [] },
         },

@@ -9,11 +9,15 @@ export type {
   PreparedBaselineMetadata,
   PreparedBaselineResult,
   PreparedBaselineSuccess,
+  PreparedBaselineTimings,
+  RestorePreparedBaselineFromCacheOptions,
+  RestorePreparedBaselineFromCacheResult,
 } from "./baseline/prepared-baseline.js";
 export {
   createPreparedBaselineCacheKey,
   getPreparedBaselineCacheEntryPath,
   prepareBaselineFromWorkspace,
+  restorePreparedBaselineFromCache,
 } from "./baseline/prepared-baseline.js";
 export type { CheckSeverity as CheckSeverityValue } from "./checks/severity.js";
 export { CheckSeverity } from "./checks/severity.js";
@@ -48,6 +52,19 @@ export {
   SnapshotStrategy,
   SubmoduleHandling,
 } from "./config/schema-values.js";
+export type { DoctorCheck } from "./doctor/check-codes.js";
+export { DoctorCheckCode } from "./doctor/check-codes.js";
+export { runDoctor } from "./doctor/run-doctor.js";
+export type {
+  DoctorBenchmarkResult,
+  DoctorCommandResult,
+  DoctorOptions,
+  DoctorProgressEvent,
+  DoctorProgressPhase,
+  DoctorResult,
+} from "./doctor/types.js";
+export type { RunShellCommandOptions, ShellCommandResult } from "./execution/run-command.js";
+export { runShellCommand } from "./execution/run-command.js";
 export type {
   AttemptResult,
   BenchmarkResult,
