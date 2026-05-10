@@ -1,8 +1,8 @@
 export const SchemaLimits = {
   BenchmarkAttemptsMax: 1_000,
   ConfigSchemaVersion: 1,
-  MaxRuntimeMinutesDefault: 30,
-  MaxRuntimeMinutesMax: 24 * 60,
+  MaxAttemptMinsDefault: 30,
+  MaxAttemptMinsMax: 24 * 60,
   MaxToolCallsDefault: 200,
   MaxToolCallsMax: 100_000,
   MaxTotalTokensDefault: 350_000,

@@ -111,9 +111,9 @@ export const ShiptestRunnerSchema = z
 
 export const LimitsSchema = z
   .object({
-    max_runtime_minutes: positiveInteger
-      .max(SchemaLimits.MaxRuntimeMinutesMax)
-      .default(SchemaLimits.MaxRuntimeMinutesDefault),
+    max_attempt_mins: positiveInteger
+      .max(SchemaLimits.MaxAttemptMinsMax)
+      .default(SchemaLimits.MaxAttemptMinsDefault),
     max_turns: positiveInteger.max(SchemaLimits.MaxTurnsMax).default(SchemaLimits.MaxTurnsDefault),
     max_tool_calls: positiveInteger
       .max(SchemaLimits.MaxToolCallsMax)
@@ -129,11 +129,7 @@ export const LimitsSchema = z
 export const ModelSchema = z
   .object({
     id,
-    provider: z.enum([
-      ModelProvider.OpenAi,
-      ModelProvider.Anthropic,
-      ModelProvider.OpenAiCompatible,
-    ]),
+    provider: nonEmptyString,
     model: nonEmptyString,
     base_url: z.url().optional(),
   })
@@ -152,6 +148,7 @@ export const AgentContextSchema = z
   .object({
     exclude_paths: z.array(nonEmptyString).default([]),
     instruction_files: z.array(nonEmptyString).default([]),
+    load_context_files: z.boolean().default(false),
   })
   .strict()
   .prefault({});

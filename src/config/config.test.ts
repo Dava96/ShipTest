@@ -222,6 +222,25 @@ describe("config loading and validation", () => {
     ).toBe(false);
   });
 
+  it("accepts arbitrary Pi provider ids", () => {
+    expect(
+      ShiptestConfigSchema.safeParse({
+        version: 1,
+        project: { name: "p", repo: "." },
+        repository_environment: { validation_commands: { required: ["npm test"] } },
+        models: [{ id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" }],
+        benchmarks: [
+          {
+            id: "invoice",
+            type: "implementation",
+            task: "task.md",
+            evaluation: { scoring_command: "npm test" },
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it("validates schema refinements", () => {
     expect(
       ShiptestConfigSchema.safeParse({

@@ -19,7 +19,7 @@ describe("ShipTest project exports", () => {
     expect(config.snapshot.git_lfs_handling).toBe("fail_on_pointers");
     expect(config.snapshot.submodule_handling).toBe("fail_if_detected");
     expect(config.shiptest_runner.prepared_baseline).toEqual({ enabled: true, cache: true });
-    expect(config.limits.max_runtime_minutes).toBe(30);
+    expect(config.limits.max_attempt_mins).toBe(30);
     expect(config.benchmarks[0]?.type).toBe("replay_change");
   });
 
