@@ -14,7 +14,11 @@ describe("buildSnapshot", () => {
     const fixture = await createGitRepoFixture();
     const result = await buildSnapshot({
       ...baseSnapshotOptions(fixture),
-      agent_context: { exclude_paths: ["AGENTS.md"], instruction_files: [] },
+      agent_context: {
+        exclude_paths: ["AGENTS.md"],
+        instruction_files: [],
+        load_context_files: false,
+      },
     });
 
     expect(result.ok).toBe(true);
@@ -91,7 +95,7 @@ describe("buildSnapshot", () => {
           prepared_baseline: { enabled: true, cache: true },
         },
         limits: {
-          max_runtime_minutes: 30,
+          max_attempt_mins: 30,
           max_turns: 40,
           max_tool_calls: 200,
           max_total_tokens: 350_000,
@@ -103,7 +107,7 @@ describe("buildSnapshot", () => {
             type: "implementation",
             task: "tasks/invoice.md",
             attempts: 1,
-            agent_context: { exclude_paths: [], instruction_files: [] },
+            agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
             evaluation: baseSnapshotOptions(fixture).evaluation,
           },
         ],
@@ -204,7 +208,11 @@ describe("buildSnapshot", () => {
 
     const result = await buildSnapshot({
       ...baseSnapshotOptions({ ...fixture, commit }),
-      agent_context: { exclude_paths: [".shiptest/**"], instruction_files: [] },
+      agent_context: {
+        exclude_paths: [".shiptest/**"],
+        instruction_files: [],
+        load_context_files: false,
+      },
       shiptest_config_dir: fixture.repoPath,
       evaluation: {
         ...baseSnapshotOptions(fixture).evaluation,
@@ -506,7 +514,7 @@ function baseSnapshotOptions(fixture: GitRepoFixture): BuildSnapshotOptions {
       submodule_handling: "fail_if_detected",
       strip_real_git_metadata: true,
     },
-    agent_context: { exclude_paths: [], instruction_files: [] },
+    agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
     evaluation: {
       clean_room: true,
       hidden_evaluation_files: [

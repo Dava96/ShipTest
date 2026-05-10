@@ -1,3 +1,20 @@
+export {
+  createEmptyAgentTelemetry,
+  parsePiJsonLineIntoTelemetry,
+  parsePiJsonLines,
+  telemetryHasContextExhaustion,
+} from "./agent/pi-events.js";
+export { PiJsonHarness, runPiJsonAgentAttempt } from "./agent/pi-json-harness.js";
+export type {
+  AgentAttemptStatus,
+  AgentHarness,
+  AgentRunOptions,
+  AgentRunResult,
+  AgentSignal,
+  AgentSignalId,
+  AgentSignalSeverity,
+  AgentTelemetry,
+} from "./agent/types.js";
 export type { PreparedBaselineCheck } from "./baseline/check-codes.js";
 export { PreparedBaselineCheckCode } from "./baseline/check-codes.js";
 export type { CleanGitRepoOptions, CleanGitRepoResult } from "./baseline/clean-git-repo.js";
