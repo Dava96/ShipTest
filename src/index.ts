@@ -29,6 +29,7 @@ export type {
   BenchmarkType as BenchmarkTypeValue,
   CommandsRunIn as CommandsRunInValue,
   DependencyChangePolicy as DependencyChangePolicyValue,
+  EvaluationPolicyPreset as EvaluationPolicyPresetValue,
   GitLfsHandling as GitLfsHandlingValue,
   HiddenEvaluationDirectoryWriteMode as HiddenEvaluationDirectoryWriteModeValue,
   HiddenEvaluationFileWriteMode as HiddenEvaluationFileWriteModeValue,
@@ -42,6 +43,7 @@ export {
   BenchmarkType,
   CommandsRunIn,
   DependencyChangePolicy,
+  EvaluationPolicyPreset,
   GitLfsHandling,
   HiddenEvaluationDirectoryWriteMode,
   HiddenEvaluationFileWriteMode,
@@ -63,6 +65,19 @@ export type {
   DoctorProgressPhase,
   DoctorResult,
 } from "./doctor/types.js";
+export { EvaluationCheckCode } from "./evaluation/check-codes.js";
+export { runCleanRoomEvaluation } from "./evaluation/clean-room-evaluator.js";
+export { applyHiddenEvaluationPayload } from "./evaluation/hidden-payload.js";
+export type {
+  CleanRoomEvaluationOptions,
+  CleanRoomEvaluationResult,
+  CleanRoomEvaluationStatus,
+  CleanRoomEvaluationVerdict,
+  EvaluationCheck,
+  EvaluationSignal,
+  EvaluationSignalId,
+  EvaluationSignalSeverity,
+} from "./evaluation/types.js";
 export type { RunShellCommandOptions, ShellCommandResult } from "./execution/run-command.js";
 export { runShellCommand } from "./execution/run-command.js";
 export type {

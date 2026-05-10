@@ -4,6 +4,7 @@ import {
   BenchmarkType,
   CommandsRunIn,
   DependencyChangePolicy,
+  EvaluationPolicyPreset,
   GitLfsHandling,
   HiddenEvaluationDirectoryWriteMode,
   HiddenEvaluationFileWriteMode,
@@ -195,6 +196,14 @@ export const EvaluationSchema = z
     hidden_evaluation_patch_policy: z
       .literal(HiddenEvaluationPatchPolicy.AdvancedAllowCollisionRisk)
       .optional(),
+    policy_preset: z
+      .enum([
+        EvaluationPolicyPreset.ReviewFirst,
+        EvaluationPolicyPreset.RiskAverse,
+        EvaluationPolicyPreset.TestGate,
+      ])
+      .default(EvaluationPolicyPreset.ReviewFirst),
+    protected_paths: z.array(nonEmptyString).default([]),
     scoring_command: nonEmptyString,
     dependency_changes: z
       .enum([
@@ -203,7 +212,7 @@ export const EvaluationSchema = z
         DependencyChangePolicy.Fail,
       ])
       .default(DependencyChangePolicy.Warn),
-    rerun_setup_on_dependency_change: z.boolean().default(true),
+    rerun_setup_on_dependency_change: z.boolean().default(false),
   })
   .strict()
   .superRefine((evaluation, context) => {

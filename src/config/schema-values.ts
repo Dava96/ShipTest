@@ -61,6 +61,14 @@ export const HiddenEvaluationPatchPolicy = {
 export type HiddenEvaluationPatchPolicy =
   (typeof HiddenEvaluationPatchPolicy)[keyof typeof HiddenEvaluationPatchPolicy];
 
+export const EvaluationPolicyPreset = {
+  ReviewFirst: "review_first",
+  RiskAverse: "risk_averse",
+  TestGate: "test_gate",
+} as const;
+export type EvaluationPolicyPreset =
+  (typeof EvaluationPolicyPreset)[keyof typeof EvaluationPolicyPreset];
+
 export const ModelProvider = {
   Anthropic: "anthropic",
   OpenAi: "openai",

@@ -518,6 +518,8 @@ function baseSnapshotOptions(fixture: GitRepoFixture): BuildSnapshotOptions {
       ],
       hidden_evaluation_directories: [],
       hidden_evaluation_patches: [],
+      policy_preset: "review_first",
+      protected_paths: [],
       scoring_command: "npm test",
       dependency_changes: "warn",
       rerun_setup_on_dependency_change: true,

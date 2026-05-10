@@ -57,4 +57,4 @@ benchmarks:
       hidden_evaluation_directories: []
       hidden_evaluation_patches: []
       dependency_changes: warn
-      rerun_setup_on_dependency_change: true
+      rerun_setup_on_dependency_change: false
