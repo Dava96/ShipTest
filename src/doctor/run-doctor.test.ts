@@ -199,6 +199,14 @@ models:
   - id: model
     provider: anthropic
     model: claude
+defaults:
+  run:
+    models:
+      - model
+  limits: {}
+  agent_context: {}
+  evaluation:
+    scoring_command: node -e "process.exit(0)"
 benchmarks:
 ${benchmarks}`,
   );
@@ -209,9 +217,7 @@ ${benchmarks}`,
 function benchmarkYaml(id: string, baseCommit?: string): string {
   return `  - id: ${id}
     type: implementation
-${baseCommit ? `    base_commit: ${baseCommit}\n` : ""}    task: tasks/${id}.md
-    evaluation:
-      scoring_command: node -e "process.exit(0)"`;
+${baseCommit ? `    base_commit: ${baseCommit}\n` : ""}    task: tasks/${id}.md`;
 }
 
 function commandsYaml(commands: readonly string[]): string {

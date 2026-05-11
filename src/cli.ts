@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 
 import { Command } from "commander";
 
@@ -10,6 +11,8 @@ import { loadShiptestConfigContext } from "./config/load-config.js";
 import type { ResolvedShiptestConfig } from "./config/schema.js";
 import { runDoctor } from "./doctor/run-doctor.js";
 import { runCleanRoomEvaluation } from "./evaluation/clean-room-evaluator.js";
+import { createRunPlan, formatRunPlan } from "./run/plan.js";
+import { regenerateReport, runShiptest } from "./run/run.js";
 import { createSnapshotManifest } from "./snapshot/manifest.js";
 import type { Submission } from "./submission/types.js";
 
@@ -19,6 +22,90 @@ program
   .name("shiptest")
   .description("Evaluate AI coding models on private repositories")
   .version("0.1.0");
+
+program
+  .command("run")
+  .description("Run configured ShipTest benchmarks and write a local report")
+  .option("-c, --config <path>", "Path to shiptest.yaml")
+  .option("--benchmark <ids...>", "Benchmark id filter; supports comma-separated values")
+  .option("--model <ids...>", "Model id filter; supports comma-separated values")
+  .option("--output <path>", "Run output directory")
+  .option("--pi <path>", "Pi executable", "pi")
+  .option("--pi-args <json>", "JSON array of arguments to pass before ShipTest Pi arguments")
+  .option("--yes", "Run without confirmation")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      readonly benchmark?: string[];
+      readonly config?: string;
+      readonly json?: boolean;
+      readonly model?: string[];
+      readonly output?: string;
+      readonly pi: string;
+      readonly piArgs?: string;
+      readonly yes?: boolean;
+    }) => {
+      const context = await loadShiptestConfigContext(options.config);
+      const benchmarkIds = parseListOption(options.benchmark);
+      const modelIds = parseListOption(options.model);
+      const plan = createRunPlan({ config: context.config, benchmarkIds, modelIds });
+      if (!options.json) {
+        console.log(formatRunPlan(plan));
+        for (const warning of plan.warnings) {
+          console.log(`⚠ ${warning}`);
+        }
+      }
+      if (!options.yes && !options.json) {
+        const confirmed = await confirmPrompt("Proceed? [y/N] ");
+        if (!confirmed) {
+          console.log("ShipTest run status: cancelled");
+          return;
+        }
+      }
+
+      const result = await runShiptest({
+        ...(options.config ? { configPath: options.config } : {}),
+        ...(benchmarkIds ? { benchmarkIds } : {}),
+        ...(modelIds ? { modelIds } : {}),
+        ...(options.output ? { runRootPath: path.resolve(options.output) } : {}),
+        piExecutable: options.pi,
+        piExecutableArgs: parseJsonStringArrayOption(options.piArgs, "--pi-args"),
+        ...(options.json
+          ? {}
+          : {
+              onProgress: (message) => {
+                console.log(message);
+              },
+            }),
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`ShipTest run status: ${result.status}`);
+        console.log(
+          `Results: ${path.join(options.output ?? path.join(".shiptest", "runs", result.run_id), "results.json")}`,
+        );
+        console.log(
+          `Report: ${path.join(options.output ?? path.join(".shiptest", "runs", result.run_id), "report.html")}`,
+        );
+      }
+    },
+  );
+
+program
+  .command("report")
+  .description("Regenerate the static HTML report for a ShipTest run")
+  .requiredOption("--run <path>", "Path to a .shiptest/runs/<run-id> directory")
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { readonly run: string; readonly json?: boolean }) => {
+    const reportPath = await regenerateReport(path.resolve(options.run));
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, report: reportPath }, null, 2));
+    } else {
+      console.log(`ShipTest report written: ${reportPath}`);
+    }
+  });
 
 program
   .command("doctor")
@@ -106,7 +193,7 @@ program
         configDir: context.configDir,
         benchmark,
         model,
-        limits: context.config.limits,
+        limits: benchmark.limits,
         artifactsDir: path.resolve(options.artifacts),
         overwrite: options.overwrite ?? false,
         piExecutable: options.pi,
@@ -325,6 +412,26 @@ function selectModel(
     throw new Error("No model is available for benchmark.");
   }
   return model;
+}
+
+function parseListOption(values: readonly string[] | undefined): string[] | undefined {
+  if (!values || values.length === 0) {
+    return undefined;
+  }
+  return values
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function confirmPrompt(prompt: string): Promise<boolean> {
+  const readline = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await readline.question(prompt);
+    return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  } finally {
+    readline.close();
+  }
 }
 
 function parseJsonStringArrayOption(value: string | undefined, optionName: string): string[] {

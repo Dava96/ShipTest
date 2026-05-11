@@ -10,3 +10,7 @@
 - A framework that helps enterprises evaluate model performances in their codebase
 - Using this framework should be as frictionless as possible
 - We should try and take the batteries included approach where possible
+
+## Conversations 
+
+- When going through a design process, can you give me real world examples and tradeoffs

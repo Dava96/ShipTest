@@ -109,22 +109,21 @@ export const ShiptestRunnerSchema = z
   .strict()
   .prefault({});
 
-export const LimitsSchema = z
-  .object({
-    max_attempt_mins: positiveInteger
-      .max(SchemaLimits.MaxAttemptMinsMax)
-      .default(SchemaLimits.MaxAttemptMinsDefault),
-    max_turns: positiveInteger.max(SchemaLimits.MaxTurnsMax).default(SchemaLimits.MaxTurnsDefault),
-    max_tool_calls: positiveInteger
-      .max(SchemaLimits.MaxToolCallsMax)
-      .default(SchemaLimits.MaxToolCallsDefault),
-    max_total_tokens: positiveInteger
-      .max(SchemaLimits.MaxTotalTokensMax)
-      .default(SchemaLimits.MaxTotalTokensDefault),
-    max_estimated_cost_usd: z.number().positive().optional(),
-  })
-  .strict()
-  .prefault({});
+const LimitsShape = {
+  max_attempt_mins: positiveInteger
+    .max(SchemaLimits.MaxAttemptMinsMax)
+    .default(SchemaLimits.MaxAttemptMinsDefault),
+  max_turns: positiveInteger.max(SchemaLimits.MaxTurnsMax).default(SchemaLimits.MaxTurnsDefault),
+  max_tool_calls: positiveInteger
+    .max(SchemaLimits.MaxToolCallsMax)
+    .default(SchemaLimits.MaxToolCallsDefault),
+  max_total_tokens: positiveInteger
+    .max(SchemaLimits.MaxTotalTokensMax)
+    .default(SchemaLimits.MaxTotalTokensDefault),
+  max_estimated_cost_usd: z.number().positive().optional(),
+} as const;
+
+export const LimitsSchema = z.object(LimitsShape).strict().prefault({});
 
 export const ModelSchema = z
   .object({
@@ -144,14 +143,16 @@ export const ModelSchema = z
     }
   });
 
-export const AgentContextSchema = z
-  .object({
-    exclude_paths: z.array(nonEmptyString).default([]),
-    instruction_files: z.array(nonEmptyString).default([]),
-    load_context_files: z.boolean().default(false),
-  })
-  .strict()
-  .prefault({});
+const AgentContextShape = {
+  exclude_paths: z.array(nonEmptyString).default([]),
+  instruction_files: z.array(nonEmptyString).default([]),
+  load_context_files: z.boolean().default(false),
+} as const;
+
+export const AgentContextSchema = z.object(AgentContextShape).strict().prefault({});
+
+const PartialLimitsSchema = z.object(LimitsShape).partial().strict();
+const PartialAgentContextSchema = z.object(AgentContextShape).partial().strict();
 
 export const HiddenEvaluationFileSchema = z
   .object({
@@ -184,49 +185,59 @@ export const HiddenEvaluationPatchSchema = z
   })
   .strict();
 
+const EvaluationShape = {
+  clean_room: z.literal(true).default(true),
+  hidden_evaluation_files: z.array(HiddenEvaluationFileSchema).default([]),
+  hidden_evaluation_directories: z.array(HiddenEvaluationDirectorySchema).default([]),
+  hidden_evaluation_patches: z.array(HiddenEvaluationPatchSchema).default([]),
+  hidden_evaluation_patch_policy: z
+    .literal(HiddenEvaluationPatchPolicy.AdvancedAllowCollisionRisk)
+    .optional(),
+  policy_preset: z
+    .enum([
+      EvaluationPolicyPreset.ReviewFirst,
+      EvaluationPolicyPreset.RiskAverse,
+      EvaluationPolicyPreset.TestGate,
+    ])
+    .default(EvaluationPolicyPreset.ReviewFirst),
+  protected_paths: z.array(nonEmptyString).default([]),
+  scoring_command: nonEmptyString,
+  dependency_changes: z
+    .enum([DependencyChangePolicy.Allow, DependencyChangePolicy.Warn, DependencyChangePolicy.Fail])
+    .default(DependencyChangePolicy.Warn),
+  rerun_setup_on_dependency_change: z.boolean().default(false),
+} as const;
+
 export const EvaluationSchema = z
-  .object({
-    clean_room: z.literal(true).default(true),
-    hidden_evaluation_files: z.array(HiddenEvaluationFileSchema).default([]),
-    hidden_evaluation_directories: z.array(HiddenEvaluationDirectorySchema).default([]),
-    hidden_evaluation_patches: z.array(HiddenEvaluationPatchSchema).default([]),
-    hidden_evaluation_patch_policy: z
-      .literal(HiddenEvaluationPatchPolicy.AdvancedAllowCollisionRisk)
-      .optional(),
-    policy_preset: z
-      .enum([
-        EvaluationPolicyPreset.ReviewFirst,
-        EvaluationPolicyPreset.RiskAverse,
-        EvaluationPolicyPreset.TestGate,
-      ])
-      .default(EvaluationPolicyPreset.ReviewFirst),
-    protected_paths: z.array(nonEmptyString).default([]),
-    scoring_command: nonEmptyString,
-    dependency_changes: z
-      .enum([
-        DependencyChangePolicy.Allow,
-        DependencyChangePolicy.Warn,
-        DependencyChangePolicy.Fail,
-      ])
-      .default(DependencyChangePolicy.Warn),
-    rerun_setup_on_dependency_change: z.boolean().default(false),
-  })
+  .object(EvaluationShape)
   .strict()
   .superRefine((evaluation, context) => {
-    if (
-      evaluation.hidden_evaluation_patches.length > 0 &&
-      !evaluation.hidden_evaluation_patch_policy
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["hidden_evaluation_patch_policy"],
-        message:
-          "hidden_evaluation_patches require hidden_evaluation_patch_policy: advanced_allow_collision_risk",
-      });
-    }
+    addHiddenPatchPolicyIssue(evaluation, context);
   });
 
-export const BenchmarkSchema = z
+const PartialEvaluationSchema = z
+  .object(EvaluationShape)
+  .partial()
+  .strict()
+  .superRefine((evaluation, context) => {
+    addHiddenPatchPolicyIssue(evaluation, context);
+  });
+
+export const DefaultsSchema = z
+  .object({
+    run: z
+      .object({
+        models: z.array(id).optional(),
+      })
+      .strict()
+      .prefault({}),
+    limits: LimitsSchema,
+    agent_context: AgentContextSchema,
+    evaluation: EvaluationSchema,
+  })
+  .strict();
+
+const BenchmarkInputSchema = z
   .object({
     id,
     type: z.enum([BenchmarkType.ReplayChange, BenchmarkType.Implementation]),
@@ -234,35 +245,15 @@ export const BenchmarkSchema = z
     task: nonEmptyString,
     attempts: positiveInteger.max(SchemaLimits.BenchmarkAttemptsMax).default(1),
     models: z.array(id).optional(),
-    agent_context: AgentContextSchema,
-    evaluation: EvaluationSchema,
+    limits: PartialLimitsSchema.optional(),
+    agent_context: PartialAgentContextSchema.optional(),
+    evaluation: PartialEvaluationSchema.optional(),
   })
-  .strict()
-  .superRefine((benchmark, context) => {
-    if (benchmark.type === BenchmarkType.ReplayChange) {
-      if (!benchmark.base_commit) {
-        context.addIssue({
-          code: "custom",
-          path: ["base_commit"],
-          message: "replay_change benchmarks must define base_commit",
-        });
-      }
-      if (
-        benchmark.evaluation.hidden_evaluation_files.length === 0 &&
-        benchmark.evaluation.hidden_evaluation_directories.length === 0 &&
-        benchmark.evaluation.hidden_evaluation_patches.length === 0
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["evaluation"],
-          message:
-            "replay_change benchmarks must define hidden_evaluation_files, hidden_evaluation_directories, or hidden_evaluation_patches",
-        });
-      }
-    }
-  });
+  .strict();
 
-export const ShiptestConfigSchema = z
+export const BenchmarkSchema = BenchmarkInputSchema;
+
+const RawShiptestConfigSchema = z
   .object({
     version: z.literal(SchemaLimits.ConfigSchemaVersion),
     project: z
@@ -274,28 +265,94 @@ export const ShiptestConfigSchema = z
     repository_environment: RepositoryEnvironmentSchema,
     snapshot: SnapshotSchema,
     shiptest_runner: ShiptestRunnerSchema,
-    limits: LimitsSchema,
+    defaults: DefaultsSchema,
     models: z.array(ModelSchema).min(1),
-    benchmarks: z.array(BenchmarkSchema).min(1),
+    benchmarks: z.array(BenchmarkInputSchema).min(1),
   })
-  .strict()
-  .superRefine((config, context) => {
-    addDuplicateIdIssues(config.models, "models", context);
-    addDuplicateIdIssues(config.benchmarks, "benchmarks", context);
+  .strict();
 
-    const modelIds = new Set(config.models.map((model) => model.id));
-    for (const [benchmarkIndex, benchmark] of config.benchmarks.entries()) {
-      for (const [modelIndex, modelId] of (benchmark.models ?? []).entries()) {
-        if (!modelIds.has(modelId)) {
-          context.addIssue({
-            code: "custom",
-            path: ["benchmarks", benchmarkIndex, "models", modelIndex],
-            message: `Unknown model reference: ${modelId}`,
-          });
-        }
+export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) => ({
+  ...config,
+  benchmarks: config.benchmarks.map((benchmark) => ({
+    ...benchmark,
+    models: benchmark.models ?? config.defaults.run.models,
+    limits: LimitsSchema.parse({ ...config.defaults.limits, ...benchmark.limits }),
+    agent_context: AgentContextSchema.parse({
+      ...config.defaults.agent_context,
+      ...benchmark.agent_context,
+    }),
+    evaluation: EvaluationSchema.parse({ ...config.defaults.evaluation, ...benchmark.evaluation }),
+  })),
+})).superRefine((config, context) => {
+  addDuplicateIdIssues(config.models, "models", context);
+  addDuplicateIdIssues(config.benchmarks, "benchmarks", context);
+
+  const modelIds = new Set(config.models.map((model) => model.id));
+  for (const [modelIndex, modelId] of (config.defaults.run.models ?? []).entries()) {
+    if (!modelIds.has(modelId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaults", "run", "models", modelIndex],
+        message: `Unknown model reference: ${modelId}`,
+      });
+    }
+  }
+
+  for (const [benchmarkIndex, benchmark] of config.benchmarks.entries()) {
+    for (const [modelIndex, modelId] of (benchmark.models ?? []).entries()) {
+      if (!modelIds.has(modelId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["benchmarks", benchmarkIndex, "models", modelIndex],
+          message: `Unknown model reference: ${modelId}`,
+        });
       }
     }
-  });
+
+    if (benchmark.type === BenchmarkType.ReplayChange) {
+      if (!benchmark.base_commit) {
+        context.addIssue({
+          code: "custom",
+          path: ["benchmarks", benchmarkIndex, "base_commit"],
+          message: "replay_change benchmarks must define base_commit",
+        });
+      }
+      if (
+        benchmark.evaluation.hidden_evaluation_files.length === 0 &&
+        benchmark.evaluation.hidden_evaluation_directories.length === 0 &&
+        benchmark.evaluation.hidden_evaluation_patches.length === 0
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["benchmarks", benchmarkIndex, "evaluation"],
+          message:
+            "replay_change benchmarks must define hidden_evaluation_files, hidden_evaluation_directories, or hidden_evaluation_patches",
+        });
+      }
+    }
+  }
+});
+
+function addHiddenPatchPolicyIssue(
+  evaluation: {
+    readonly hidden_evaluation_patches?: readonly unknown[] | undefined;
+    readonly hidden_evaluation_patch_policy?: unknown;
+  },
+  context: z.RefinementCtx,
+): void {
+  if (
+    evaluation.hidden_evaluation_patches &&
+    evaluation.hidden_evaluation_patches.length > 0 &&
+    !evaluation.hidden_evaluation_patch_policy
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["hidden_evaluation_patch_policy"],
+      message:
+        "hidden_evaluation_patches require hidden_evaluation_patch_policy: advanced_allow_collision_risk",
+    });
+  }
+}
 
 function requireFieldsForSource(
   environment: {

@@ -36,15 +36,13 @@ lerna-debug.log*
 /temp
 .cache/
 
-# ShipTest local artifacts
+# ShipTest generated artifacts
 .shiptest/runs/
-.shiptest/reports/
-.shiptest/results/
 .shiptest/cache/
+.shiptest/tmp/
 reports/
 results/
 
 # Local project notes/assets
 /adrs/
 AGENTS.md
-/.shiptest/

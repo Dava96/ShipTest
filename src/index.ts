@@ -110,6 +110,15 @@ export type {
   ShiptestRunResult,
   SnapshotResult,
 } from "./results/types.js";
+export { createRunPlan, formatRunPlan } from "./run/plan.js";
+export { regenerateReport, runShiptest } from "./run/run.js";
+export type {
+  AttemptReport,
+  RunPlan,
+  RunPlanItem,
+  RunResults,
+  ShiptestRunOptions,
+} from "./run/types.js";
 export { buildSnapshot } from "./snapshot/build-snapshot.js";
 export { SnapshotCheckCode, SnapshotCheckSeverity } from "./snapshot/check-codes.js";
 export { createBuildSnapshotOptions } from "./snapshot/options.js";
