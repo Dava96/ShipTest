@@ -65,6 +65,7 @@ export interface DoctorBenchmarkResult {
   readonly ok: boolean;
   readonly timings_ms: DoctorTimings;
   readonly snapshot_manifest?: SnapshotManifest;
+  readonly prepared_baseline_path?: string;
   readonly prepared_baseline_metadata?: PreparedBaselineMetadata;
   readonly prepared_baseline_timings_ms?: PreparedBaselineTimings;
   readonly commands: readonly DoctorCommandResult[];

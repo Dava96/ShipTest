@@ -319,15 +319,20 @@ function evaluationConfig(
     project: { name: "fixture", repo: "." },
     repository_environment: { validation_commands: { required: ["node --version"] } },
     models: [{ id: "model", provider: "openai", model: "gpt" }],
+    defaults: {
+      run: { models: ["model"] },
+      limits: {},
+      agent_context: {},
+      evaluation: {
+        scoring_command: "node --version",
+        ...evaluation,
+      },
+    },
     benchmarks: [
       {
         id: "bench",
         type: "implementation",
         task: "task.md",
-        evaluation: {
-          scoring_command: "node --version",
-          ...evaluation,
-        },
       },
     ],
   });

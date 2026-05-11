@@ -139,6 +139,12 @@ describe("config loading and validation", () => {
       version: 1,
       project: { name: "p", repo: "." },
       models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      defaults: {
+        run: { models: ["sonnet"] },
+        limits: {},
+        agent_context: {},
+        evaluation: { scoring_command: "npm test" },
+      },
       benchmarks: [
         {
           id: "invoice",
@@ -207,6 +213,12 @@ describe("config loading and validation", () => {
         project: { name: "p", repo: "." },
         repository_environment: { validation_commands: { required: ["npm test"] } },
         models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+        defaults: {
+          run: { models: ["sonnet"] },
+          limits: {},
+          agent_context: {},
+          evaluation: { scoring_command: "npm test" },
+        },
         benchmarks: [
           {
             id: "invoice",
@@ -229,6 +241,12 @@ describe("config loading and validation", () => {
         project: { name: "p", repo: "." },
         repository_environment: { validation_commands: { required: ["npm test"] } },
         models: [{ id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" }],
+        defaults: {
+          run: { models: ["gpt-5.5"] },
+          limits: {},
+          agent_context: {},
+          evaluation: { scoring_command: "npm test" },
+        },
         benchmarks: [
           {
             id: "invoice",
@@ -252,6 +270,12 @@ describe("config loading and validation", () => {
           { id: "same", provider: "anthropic", model: "claude" },
           { id: "local", provider: "openai_compatible", model: "qwen" },
         ],
+        defaults: {
+          run: { models: ["same"] },
+          limits: {},
+          agent_context: {},
+          evaluation: { scoring_command: "npm test" },
+        },
         benchmarks: [
           {
             id: "same-benchmark",
@@ -333,29 +357,34 @@ models:
   - id: sonnet
     provider: anthropic
     model: claude
+defaults:
+  run:
+    models:
+      - sonnet
+  limits: {}
+  agent_context:
+    exclude_paths:
+      - ${options.excludePath ?? "src/**"}
+    instruction_files:
+      - ${options.instructionFile ?? "instructions.md"}
+  evaluation:
+    scoring_command: npm test
+    hidden_evaluation_files:
+      - shiptest_path: ${options.hiddenFilePath ?? "hidden/test.ts"}
+        repository_path: tests/test.ts
+        write_mode: create_new
+    hidden_evaluation_directories:
+      - shiptest_path: ${options.hiddenDirectoryPath ?? "hidden/fixtures"}
+        repository_path: ${options.hiddenDirectoryRepositoryPath ?? "tests/fixtures"}
+        write_mode: create_new
+    hidden_evaluation_patches:
+      - shiptest_path: ${options.hiddenPatchPath ?? "hidden/patch.diff"}
+    hidden_evaluation_patch_policy: advanced_allow_collision_risk
 benchmarks:
   - id: invoice
     type: replay_change
     base_commit: abc123
     task: tasks/task.md
-    agent_context:
-      exclude_paths:
-        - ${options.excludePath ?? "src/**"}
-      instruction_files:
-        - ${options.instructionFile ?? "instructions.md"}
-    evaluation:
-      scoring_command: npm test
-      hidden_evaluation_files:
-        - shiptest_path: ${options.hiddenFilePath ?? "hidden/test.ts"}
-          repository_path: tests/test.ts
-          write_mode: create_new
-      hidden_evaluation_directories:
-        - shiptest_path: ${options.hiddenDirectoryPath ?? "hidden/fixtures"}
-          repository_path: ${options.hiddenDirectoryRepositoryPath ?? "tests/fixtures"}
-          write_mode: create_new
-      hidden_evaluation_patches:
-        - shiptest_path: ${options.hiddenPatchPath ?? "hidden/patch.diff"}
-      hidden_evaluation_patch_policy: advanced_allow_collision_risk
 `,
     "utf8",
   );

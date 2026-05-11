@@ -19,7 +19,8 @@ describe("ShipTest project exports", () => {
     expect(config.snapshot.git_lfs_handling).toBe("fail_on_pointers");
     expect(config.snapshot.submodule_handling).toBe("fail_if_detected");
     expect(config.shiptest_runner.prepared_baseline).toEqual({ enabled: true, cache: true });
-    expect(config.limits.max_attempt_mins).toBe(30);
+    expect(config.defaults.limits.max_attempt_mins).toBe(30);
+    expect(config.benchmarks[0]?.limits.max_attempt_mins).toBe(30);
     expect(config.benchmarks[0]?.type).toBe("replay_change");
   });
 
@@ -87,6 +88,17 @@ models:
   - id: sonnet-4.5
     provider: anthropic
     model: claude-sonnet-4.5
+defaults:
+  run:
+    models:
+      - sonnet-4.5
+  limits: {}
+  agent_context:
+    exclude_paths:
+      - AGENTS.md
+      - "**/CLAUDE.md"
+  evaluation:
+    scoring_command: npm test -- tests/invoice.test.ts
 benchmarks:
   - id: invoice-rounding
     type: replay_change
@@ -94,10 +106,6 @@ benchmarks:
     task: tasks/invoice.md
     models:
       - ${options.benchmarkModel ?? "sonnet-4.5"}
-    agent_context:
-      exclude_paths:
-        - AGENTS.md
-        - "**/CLAUDE.md"
     evaluation:
       hidden_evaluation_files:
         - shiptest_path: hidden/invoice.test.ts
@@ -107,7 +115,6 @@ benchmarks:
         - shiptest_path: hidden/fixtures
           repository_path: tests/fixtures/invoice
           write_mode: create_new
-      scoring_command: npm test -- tests/invoice.test.ts
 `,
     "utf8",
   );

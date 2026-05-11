@@ -412,22 +412,27 @@ async function createFixture(options: {
       validation_commands: { required: ["node --version"] },
     },
     models: [{ id: "model", provider: "openai", model: "gpt" }],
+    defaults: {
+      run: { models: ["model"] },
+      limits: {},
+      agent_context: {},
+      evaluation: {
+        scoring_command: options.scoringCommand,
+        hidden_evaluation_files: [
+          {
+            shiptest_path: "hidden/check.js",
+            repository_path: "hidden/check.js",
+            write_mode: "create_new",
+          },
+        ],
+      },
+    },
     benchmarks: [
       {
         id: "bench",
         type: "replay_change",
         base_commit: "base",
         task: "task.md",
-        evaluation: {
-          hidden_evaluation_files: [
-            {
-              shiptest_path: "hidden/check.js",
-              repository_path: "hidden/check.js",
-              write_mode: "create_new",
-            },
-          ],
-          scoring_command: options.scoringCommand,
-        },
       },
     ],
   });

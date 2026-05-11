@@ -13,7 +13,7 @@ interface Fixture {
   readonly preparedBaselinePath: string;
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
   readonly model: ResolvedShiptestConfig["models"][number];
-  readonly limits: ResolvedShiptestConfig["limits"];
+  readonly limits: ResolvedShiptestConfig["benchmarks"][number]["limits"];
 }
 
 describe("Pi JSON harness", () => {
@@ -377,12 +377,17 @@ async function createFixture(): Promise<Fixture> {
     project: { name: "fixture", repo: "." },
     repository_environment: { validation_commands: { required: ["node --version"] } },
     models: [{ id: "fake", provider: "openai", model: "fake-model" }],
+    defaults: {
+      run: { models: ["fake"] },
+      limits: {},
+      agent_context: {},
+      evaluation: { scoring_command: "node --version" },
+    },
     benchmarks: [
       {
         id: "bench",
         type: "implementation",
         task: "tasks/task.md",
-        evaluation: { scoring_command: "node --version" },
       },
     ],
   });
@@ -392,7 +397,7 @@ async function createFixture(): Promise<Fixture> {
     throw new Error("expected fixture config");
   }
 
-  return { root, configDir, preparedBaselinePath, benchmark, model, limits: config.limits };
+  return { root, configDir, preparedBaselinePath, benchmark, model, limits: benchmark.limits };
 }
 
 async function createFakePi(

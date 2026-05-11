@@ -28,33 +28,38 @@ shiptest_runner:
     enabled: true
     cache: true
 
-limits:
-  max_attempt_mins: 30
-  max_turns: 40
-  max_tool_calls: 200
-  max_total_tokens: 350000
-
 models:
   - id: sonnet-4.5
     provider: anthropic
     model: claude-sonnet-4.5
+
+defaults:
+  run:
+    models:
+      - sonnet-4.5
+  limits:
+    max_attempt_mins: 30
+    max_turns: 40
+    max_tool_calls: 200
+    max_total_tokens: 350000
+  agent_context:
+    load_context_files: false
+    # AGENTS.md and CLAUDE.md are disabled by default for controlled comparisons.
+    exclude_paths:
+      - ".shiptest/**"
+      - "dist/**"
+    instruction_files: []
+  evaluation:
+    clean_room: true
+    scoring_command: npm run test:run
+    hidden_evaluation_files: []
+    hidden_evaluation_directories: []
+    hidden_evaluation_patches: []
+    dependency_changes: warn
+    rerun_setup_on_dependency_change: false
 
 benchmarks:
   - id: cli-validation-smoke
     type: implementation
     task: tasks/shiptest-smoke.md
     attempts: 1
-    agent_context:
-      # AGENTS.md and CLAUDE.md are included by default. Exclude only generated ShipTest artifacts.
-      exclude_paths:
-        - ".shiptest/**"
-        - "dist/**"
-      instruction_files: []
-    evaluation:
-      clean_room: true
-      scoring_command: npm run test:run
-      hidden_evaluation_files: []
-      hidden_evaluation_directories: []
-      hidden_evaluation_patches: []
-      dependency_changes: warn
-      rerun_setup_on_dependency_change: false

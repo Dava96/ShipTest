@@ -94,11 +94,16 @@ describe("buildSnapshot", () => {
           clean_git_repo: { enabled: true },
           prepared_baseline: { enabled: true, cache: true },
         },
-        limits: {
-          max_attempt_mins: 30,
-          max_turns: 40,
-          max_tool_calls: 200,
-          max_total_tokens: 350_000,
+        defaults: {
+          run: { models: ["sonnet"] },
+          limits: {
+            max_attempt_mins: 30,
+            max_turns: 40,
+            max_tool_calls: 200,
+            max_total_tokens: 350_000,
+          },
+          agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
+          evaluation: baseSnapshotOptions(fixture).evaluation,
         },
         models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
         benchmarks: [
@@ -107,6 +112,13 @@ describe("buildSnapshot", () => {
             type: "implementation",
             task: "tasks/invoice.md",
             attempts: 1,
+            models: ["sonnet"],
+            limits: {
+              max_attempt_mins: 30,
+              max_turns: 40,
+              max_tool_calls: 200,
+              max_total_tokens: 350_000,
+            },
             agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
             evaluation: baseSnapshotOptions(fixture).evaluation,
           },

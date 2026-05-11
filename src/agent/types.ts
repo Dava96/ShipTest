@@ -83,7 +83,7 @@ export interface AgentRunOptions {
   readonly configDir: string;
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
   readonly model: ResolvedShiptestConfig["models"][number];
-  readonly limits: ResolvedShiptestConfig["limits"];
+  readonly limits: ResolvedShiptestConfig["benchmarks"][number]["limits"];
   readonly artifactsDir: string;
   readonly overwrite?: boolean;
   readonly piExecutable?: string;
