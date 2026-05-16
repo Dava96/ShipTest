@@ -259,7 +259,7 @@ const RawShiptestConfigSchema = z
     project: z
       .object({
         name: nonEmptyString,
-        repo: nonEmptyString,
+        repo: nonEmptyString.optional(),
       })
       .strict(),
     repository_environment: RepositoryEnvironmentSchema,
@@ -273,6 +273,10 @@ const RawShiptestConfigSchema = z
 
 export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) => ({
   ...config,
+  project: {
+    ...config.project,
+    repo: config.project.repo ?? ".",
+  },
   benchmarks: config.benchmarks.map((benchmark) => ({
     ...benchmark,
     models: benchmark.models ?? config.defaults.run.models,

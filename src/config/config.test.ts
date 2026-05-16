@@ -82,6 +82,89 @@ describe("config loading and validation", () => {
     });
   });
 
+  it("defaults omitted project.repo to the nearest git root from the config file", async () => {
+    const root = await createTempDirectory();
+    const repo = path.join(root, "repo");
+    const configDir = path.join(repo, ".shiptest");
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+    await mkdir(path.join(repo, "src"), { recursive: true });
+    await mkdir(path.join(configDir, "tasks"), { recursive: true });
+    await writeFile(path.join(configDir, "tasks", "task.md"), "Task\n", "utf8");
+    await writeFile(path.join(repo, "src", "index.ts"), "export {};\n", "utf8");
+    const configPath = path.join(configDir, "shiptest.yaml");
+    await writeFile(
+      configPath,
+      `version: 1
+project:
+  name: payments-api
+repository_environment:
+  validation_commands:
+    required:
+      - npm test
+models:
+  - id: sonnet
+    provider: anthropic
+    model: claude
+defaults:
+  run:
+    models:
+      - sonnet
+  limits: {}
+  agent_context: {}
+  evaluation:
+    scoring_command: npm test
+benchmarks:
+  - id: invoice
+    type: implementation
+    task: tasks/task.md
+`,
+      "utf8",
+    );
+
+    const context = await loadShiptestConfigContext(configPath);
+
+    expect(context.config.project.repo).toBe(repo);
+  });
+
+  it("falls back to the config directory when project.repo is omitted outside a git repo", async () => {
+    const root = await createTempDirectory();
+    await mkdir(path.join(root, "tasks"), { recursive: true });
+    await writeFile(path.join(root, "tasks", "task.md"), "Task\n", "utf8");
+    const configPath = path.join(root, "shiptest.yaml");
+    await writeFile(
+      configPath,
+      `version: 1
+project:
+  name: payments-api
+repository_environment:
+  validation_commands:
+    required:
+      - npm test
+models:
+  - id: sonnet
+    provider: anthropic
+    model: claude
+defaults:
+  run:
+    models:
+      - sonnet
+  limits: {}
+  agent_context: {}
+  evaluation:
+    scoring_command: npm test
+benchmarks:
+  - id: invoice
+    type: implementation
+    task: tasks/task.md
+`,
+      "utf8",
+    );
+
+    await expect(loadShiptestConfig(configPath)).resolves.toMatchObject({
+      project: { repo: root },
+    });
+  });
+
   it("validates semantic config references", async () => {
     const fixture = await createConfigFixture({
       dockerfilePath: "Missing.Dockerfile",
@@ -317,6 +400,7 @@ interface ConfigFixtureOptions {
   readonly hiddenFilePath?: string;
   readonly hiddenPatchPath?: string;
   readonly instructionFile?: string;
+  readonly omitProjectRepo?: boolean;
 }
 
 interface ConfigFixture {
@@ -343,8 +427,7 @@ async function createConfigFixture(options: ConfigFixtureOptions = {}): Promise<
     `version: 1
 project:
   name: payments-api
-  repo: repo
-repository_environment:
+${options.omitProjectRepo ? "" : "  repo: repo\n"}repository_environment:
   source: dockerfile_target
   commands_run_in: repository_environment
   dockerfile_path: ${options.dockerfilePath ?? "Dockerfile"}
