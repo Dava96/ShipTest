@@ -1,33 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { ShiptestConfigSchema } from "../config/schema.js";
+import {
+  benchmark,
+  createResolvedShiptestConfig,
+  model,
+} from "../test-support/shiptest-config-fixture.js";
 import { createRunPlan, formatRunPlan } from "./plan.js";
 
 describe("run plan", () => {
   it("uses default models and benchmark model overrides", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: [
-        { id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" },
-        { id: "sonnet", provider: "anthropic", model: "claude" },
-      ],
-      defaults: {
-        run: { models: ["gpt-5.5", "sonnet"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [
-        { id: "invoice", type: "implementation", task: ".shiptest/tasks/invoice.md" },
-        {
-          id: "legacy-auth",
-          type: "implementation",
-          task: ".shiptest/tasks/auth.md",
-          models: ["gpt-5.5"],
-        },
-      ],
+    const config = createResolvedShiptestConfig({
+      models: [model("gpt-5.5"), model("sonnet")],
+      defaultModels: ["gpt-5.5", "sonnet"],
+      benchmarks: [benchmark("invoice"), benchmark("legacy-auth", { models: ["gpt-5.5"] })],
     });
 
     const plan = createRunPlan({ config });
@@ -42,27 +27,21 @@ describe("run plan", () => {
   });
 
   it("reports warnings, truncates long lists, and falls back to all models without defaults", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: Array.from({ length: 6 }, (_, index) => ({
-        id: `model-${index + 1}`,
-        provider: "openai-codex",
-        model: `model-${index + 1}`,
-      })),
-      defaults: {
-        run: {},
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: Array.from({ length: 21 }, (_, index) => ({
-        id: `benchmark-${index + 1}`,
-        type: "implementation" as const,
-        task: `.shiptest/tasks/${index + 1}.md`,
-        attempts: index === 0 ? 2 : 1,
-      })),
+    const formatRunPlanPreviewLimit = 20;
+    const modelCountExceedingPreviewLimit = 6;
+    const benchmarkCountExceedingPreviewLimit = formatRunPlanPreviewLimit + 1;
+
+    const config = createResolvedShiptestConfig({
+      models: Array.from({ length: modelCountExceedingPreviewLimit }, (_, index) =>
+        model(`model-${index + 1}`),
+      ),
+      defaultModels: "omit",
+      benchmarks: Array.from({ length: benchmarkCountExceedingPreviewLimit }, (_, index) =>
+        benchmark(`benchmark-${index + 1}`, {
+          task: `.shiptest/tasks/${index + 1}.md`,
+          attempts: index === 0 ? 2 : 1,
+        }),
+      ),
     });
 
     const plan = createRunPlan({ config });
@@ -86,18 +65,9 @@ describe("run plan", () => {
   });
 
   it("rejects unknown filters and empty plans", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: [{ id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" }],
-      defaults: {
-        run: { models: ["gpt-5.5"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [{ id: "invoice", type: "implementation", task: ".shiptest/tasks/invoice.md" }],
+    const config = createResolvedShiptestConfig({
+      models: [model("gpt-5.5")],
+      benchmarks: [benchmark("invoice")],
     });
 
     expect(() => createRunPlan({ config, benchmarkIds: ["missing"] })).toThrow(
@@ -111,26 +81,17 @@ describe("run plan", () => {
   });
 
   it("rejects benchmark model references that are missing from an unchecked config", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: [{ id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" }],
-      defaults: {
-        run: { models: ["gpt-5.5"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [{ id: "invoice", type: "implementation", task: ".shiptest/tasks/invoice.md" }],
+    const config = createResolvedShiptestConfig({
+      models: [model("gpt-5.5")],
+      benchmarks: [benchmark("invoice")],
     });
-    const [benchmark] = config.benchmarks;
-    if (!benchmark) {
+    const [selectedBenchmark] = config.benchmarks;
+    if (!selectedBenchmark) {
       throw new Error("expected benchmark");
     }
     const uncheckedConfig = {
       ...config,
-      benchmarks: [{ ...benchmark, models: ["missing"] }],
+      benchmarks: [{ ...selectedBenchmark, models: ["missing"] }],
     };
 
     expect(() => createRunPlan({ config: uncheckedConfig })).toThrow(
@@ -139,28 +100,9 @@ describe("run plan", () => {
   });
 
   it("throws when filters remove all benchmark/model pairs", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: [
-        { id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" },
-        { id: "sonnet", provider: "anthropic", model: "claude" },
-      ],
-      defaults: {
-        run: { models: ["gpt-5.5"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [
-        {
-          id: "invoice",
-          type: "implementation",
-          task: ".shiptest/tasks/invoice.md",
-          models: ["gpt-5.5"],
-        },
-      ],
+    const config = createResolvedShiptestConfig({
+      models: [model("gpt-5.5"), model("sonnet")],
+      benchmarks: [benchmark("invoice", { models: ["gpt-5.5"] })],
     });
 
     expect(() => createRunPlan({ config, modelIds: ["sonnet"] })).toThrow(
@@ -169,24 +111,10 @@ describe("run plan", () => {
   });
 
   it("filters benchmarks and models", () => {
-    const config = ShiptestConfigSchema.parse({
-      version: 1,
-      project: { name: "fixture", repo: "." },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
-      models: [
-        { id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" },
-        { id: "sonnet", provider: "anthropic", model: "claude" },
-      ],
-      defaults: {
-        run: { models: ["gpt-5.5", "sonnet"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [
-        { id: "invoice", type: "implementation", task: ".shiptest/tasks/invoice.md" },
-        { id: "tax", type: "implementation", task: ".shiptest/tasks/tax.md" },
-      ],
+    const config = createResolvedShiptestConfig({
+      models: [model("gpt-5.5"), model("sonnet")],
+      defaultModels: ["gpt-5.5", "sonnet"],
+      benchmarks: [benchmark("invoice"), benchmark("tax")],
     });
 
     const plan = createRunPlan({ config, benchmarkIds: ["invoice"], modelIds: ["sonnet"] });
