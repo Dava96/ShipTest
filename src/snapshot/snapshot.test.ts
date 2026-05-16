@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ShiptestConfigContext } from "../config/load-config.js";
+import {
+  benchmark,
+  createResolvedShiptestConfig,
+} from "../test-support/shiptest-config-fixture.js";
 import { git } from "../utils/git.js";
 import { buildSnapshot } from "./build-snapshot.js";
 import { SnapshotCheckCode } from "./check-codes.js";
@@ -78,52 +82,15 @@ describe("buildSnapshot", () => {
   it("creates build options from a loaded config context", async () => {
     const fixture = await createGitRepoFixture();
     const context: ShiptestConfigContext = {
-      config: {
-        version: 1,
-        project: { name: "fixture", repo: "repo" },
-        repository_environment: {
-          commands_run_in: "shiptest_environment",
-          source: "local",
-          setup_commands: [],
-          validation_commands: { required: ["npm test"], advisory: [] },
-          teardown_commands: [],
-          required_secrets: { setup: [], evaluation: [] },
-        },
-        snapshot: baseSnapshotOptions(fixture).snapshot,
-        shiptest_runner: {
-          clean_git_repo: { enabled: true },
-          prepared_baseline: { enabled: true, cache: true },
-        },
-        defaults: {
-          run: { models: ["sonnet"] },
-          limits: {
-            max_attempt_mins: 30,
-            max_turns: 40,
-            max_tool_calls: 200,
-            max_total_tokens: 350_000,
-          },
-          agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
-          evaluation: baseSnapshotOptions(fixture).evaluation,
-        },
-        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      config: createResolvedShiptestConfig({
+        projectRepo: "repo",
         benchmarks: [
-          {
-            id: "invoice",
-            type: "implementation",
+          benchmark("invoice", {
             task: "tasks/invoice.md",
-            attempts: 1,
-            models: ["sonnet"],
-            limits: {
-              max_attempt_mins: 30,
-              max_turns: 40,
-              max_tool_calls: 200,
-              max_total_tokens: 350_000,
-            },
-            agent_context: { exclude_paths: [], instruction_files: [], load_context_files: false },
             evaluation: baseSnapshotOptions(fixture).evaluation,
-          },
+          }),
         ],
-      },
+      }),
       configPath: path.join(fixture.configDir, "shiptest.yaml"),
       configDir: fixture.configDir,
     };

@@ -4,10 +4,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { initializeCleanGitRepo } from "../baseline/clean-git-repo.js";
-import { type ResolvedShiptestConfig, ShiptestConfigSchema } from "../config/schema.js";
+import type { ResolvedShiptestConfig } from "../config/schema.js";
 import { createSnapshotManifest } from "../snapshot/manifest.js";
 import { extractSubmission } from "../submission/extract.js";
 import type { Submission } from "../submission/types.js";
+import {
+  benchmark as configBenchmark,
+  createResolvedShiptestConfig,
+} from "../test-support/shiptest-config-fixture.js";
 import { runCleanRoomEvaluation } from "./clean-room-evaluator.js";
 
 interface Fixture {
@@ -404,36 +408,24 @@ async function createFixture(options: {
   );
   await initializeCleanGitRepo(preparedBaselinePath);
 
-  const config = ShiptestConfigSchema.parse({
-    version: 1,
-    project: { name: "fixture", repo: "." },
-    repository_environment: {
-      setup_commands: options.setupCommands ?? [],
+  const config = createResolvedShiptestConfig({
+    repositoryEnvironment: {
+      setup_commands: [...(options.setupCommands ?? [])],
       validation_commands: { required: ["node --version"] },
     },
-    models: [{ id: "model", provider: "openai", model: "gpt" }],
-    defaults: {
-      run: { models: ["model"] },
-      limits: {},
-      agent_context: {},
-      evaluation: {
-        scoring_command: options.scoringCommand,
-        hidden_evaluation_files: [
-          {
-            shiptest_path: "hidden/check.js",
-            repository_path: "hidden/check.js",
-            write_mode: "create_new",
-          },
-        ],
-      },
-    },
     benchmarks: [
-      {
-        id: "bench",
-        type: "replay_change",
-        base_commit: "base",
-        task: "task.md",
-      },
+      configBenchmark("bench", {
+        evaluation: {
+          scoring_command: options.scoringCommand,
+          hidden_evaluation_files: [
+            {
+              shiptest_path: "hidden/check.js",
+              repository_path: "hidden/check.js",
+              write_mode: "create_new",
+            },
+          ],
+        },
+      }),
     ],
   });
 

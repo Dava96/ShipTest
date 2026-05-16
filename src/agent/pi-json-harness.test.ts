@@ -4,7 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { initializeCleanGitRepo } from "../baseline/clean-git-repo.js";
-import { type ResolvedShiptestConfig, ShiptestConfigSchema } from "../config/schema.js";
+import type { ResolvedShiptestConfig } from "../config/schema.js";
+import {
+  benchmark as configBenchmark,
+  createResolvedShiptestConfig,
+} from "../test-support/shiptest-config-fixture.js";
 import { runPiJsonAgentAttempt } from "./pi-json-harness.js";
 
 interface Fixture {
@@ -372,24 +376,8 @@ async function createFixture(): Promise<Fixture> {
   await writeFile(path.join(preparedBaselinePath, "src", "index.ts"), "export {};\n", "utf8");
   await initializeCleanGitRepo(preparedBaselinePath);
 
-  const config = ShiptestConfigSchema.parse({
-    version: 1,
-    project: { name: "fixture", repo: "." },
-    repository_environment: { validation_commands: { required: ["node --version"] } },
-    models: [{ id: "fake", provider: "openai", model: "fake-model" }],
-    defaults: {
-      run: { models: ["fake"] },
-      limits: {},
-      agent_context: {},
-      evaluation: { scoring_command: "node --version" },
-    },
-    benchmarks: [
-      {
-        id: "bench",
-        type: "implementation",
-        task: "tasks/task.md",
-      },
-    ],
+  const config = createResolvedShiptestConfig({
+    benchmarks: [configBenchmark("bench", { task: "tasks/task.md" })],
   });
   const [benchmark] = config.benchmarks;
   const [model] = config.models;
