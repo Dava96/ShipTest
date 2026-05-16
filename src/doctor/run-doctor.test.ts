@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { loadShiptestConfigContext } from "../config/load-config.js";
+import { benchmark, createShiptestConfigFixture } from "../test-support/shiptest-config-fixture.js";
 import { git } from "../utils/git.js";
 import { DoctorCheckCode } from "./check-codes.js";
 import { runDoctor } from "./run-doctor.js";
@@ -169,59 +170,28 @@ async function createConfig(
     readonly secondInvalidBase?: boolean;
   },
 ): Promise<string> {
-  const fixturePath = await mkdtemp(path.join(os.tmpdir(), "shiptest-doctor-config-"));
-  const benchmarks = [
-    benchmarkYaml("doctor-smoke"),
-    ...(options.secondInvalidBase ? [benchmarkYaml("doctor-failing", "missing-commit")] : []),
-  ].join("\n");
-  await mkdir(path.join(fixturePath, "tasks"), { recursive: true });
-  await writeFile(path.join(fixturePath, "tasks", "doctor-smoke.md"), "Do the thing.\n");
-  if (options.secondInvalidBase) {
-    await writeFile(path.join(fixturePath, "tasks", "doctor-failing.md"), "Do the thing.\n");
-  }
+  const fixture = await createShiptestConfigFixture({
+    projectRepo: repoPath,
+    repositoryEnvironment: {
+      commands_run_in: "shiptest_environment",
+      source: "local",
+      setup_commands: [],
+      validation_commands: {
+        required: [...options.required],
+        advisory: [...options.advisory],
+      },
+    },
+    benchmarks: [
+      benchmark("doctor-smoke"),
+      ...(options.secondInvalidBase
+        ? [benchmark("doctor-failing", { base_commit: "missing-commit" })]
+        : []),
+    ],
+    files: {
+      "tasks/doctor-smoke.md": "Do the thing.\n",
+      ...(options.secondInvalidBase ? { "tasks/doctor-failing.md": "Do the thing.\n" } : {}),
+    },
+  });
 
-  await writeFile(
-    path.join(fixturePath, "shiptest.yaml"),
-    `version: 1
-project:
-  name: doctor-fixture
-  repo: ${JSON.stringify(repoPath)}
-repository_environment:
-  commands_run_in: shiptest_environment
-  source: local
-  setup_commands: []
-  validation_commands:
-    required:
-${commandsYaml(options.required)}
-    advisory:
-${commandsYaml(options.advisory)}
-models:
-  - id: model
-    provider: anthropic
-    model: claude
-defaults:
-  run:
-    models:
-      - model
-  limits: {}
-  agent_context: {}
-  evaluation:
-    scoring_command: node -e "process.exit(0)"
-benchmarks:
-${benchmarks}`,
-  );
-
-  return fixturePath;
-}
-
-function benchmarkYaml(id: string, baseCommit?: string): string {
-  return `  - id: ${id}
-    type: implementation
-${baseCommit ? `    base_commit: ${baseCommit}\n` : ""}    task: tasks/${id}.md`;
-}
-
-function commandsYaml(commands: readonly string[]): string {
-  return commands.length === 0
-    ? "      []"
-    : commands.map((command) => `      - ${JSON.stringify(command)}`).join("\n");
+  return fixture.configDir;
 }
