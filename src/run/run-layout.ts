@@ -9,6 +9,7 @@ export interface RunLayout {
   readonly reportPath: string;
   readonly doctorOutputPath: string;
   readonly cacheRootPath: string;
+  readonly workspaceRootPath: string;
 }
 
 export interface AttemptLayout {
@@ -51,6 +52,7 @@ export async function createRunLayout(options: {
     reportPath: path.join(allocatedRun.runRootPath, "report.html"),
     doctorOutputPath: path.join(allocatedRun.runRootPath, "doctor"),
     cacheRootPath: path.join(options.projectRootPath, ".shiptest", "cache"),
+    workspaceRootPath: path.join(options.projectRootPath, ".shiptest", "workspaces", "resettable"),
   };
   if (options.runRootPath || options.runId) {
     await mkdir(allocatedRun.runRootPath, { recursive: true });

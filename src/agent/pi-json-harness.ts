@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createSnapshotManifest } from "../snapshot/manifest.js";
 import { extractSubmission } from "../submission/extract.js";
-import { isFilesystemRoot, pathExists, safeRemoveDescendant } from "../utils/filesystem.js";
+import { pathExists } from "../utils/filesystem.js";
+import {
+  prepareCopiedWorkspace,
+  prepareResettableGitWorkspace,
+} from "../workspace/resettable-workspace.js";
 import {
   createEmptyAgentTelemetry,
   parsePiJsonLineIntoTelemetry,
@@ -27,14 +31,18 @@ export class PiJsonHarness implements AgentHarness {
 }
 
 export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<AgentRunResult> {
+  const startedAt = Date.now();
   const artifacts: Record<string, string> = {};
   const signals: AgentSignal[] = [];
   await mkdir(options.artifactsDir, { recursive: true });
-  await createAgentWorkspace(
+  const workspacePrepareStartedAt = Date.now();
+  const workspacePrepareResult = await createAgentWorkspace(
     options.preparedBaselinePath,
     options.agentWorkspacePath,
     options.overwrite ?? false,
+    options.preparedBaselineCommit,
   );
+  const workspacePrepareMs = Date.now() - workspacePrepareStartedAt;
 
   const taskPath = path.resolve(options.configDir, options.benchmark.task);
   const prompt = await readFile(taskPath, "utf8");
@@ -52,6 +60,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
   artifacts.pi_events = piEventsPath;
   artifacts.pi_stderr = stderrPath;
 
+  const processStartedAt = Date.now();
   const runResult = await runPiProcess({
     cwd: options.agentWorkspacePath,
     prompt,
@@ -63,6 +72,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     piEventsPath,
     stderrPath,
   });
+  const processMs = Date.now() - processStartedAt;
 
   signals.push(...runResult.signals);
   const telemetry = runResult.telemetry;
@@ -85,10 +95,12 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     );
   }
 
+  const submissionExtractStartedAt = Date.now();
   const extraction = await extractSubmission({
     workspacePath: options.agentWorkspacePath,
     baselineManifest,
   });
+  const submissionExtractMs = Date.now() - submissionExtractStartedAt;
 
   if (!extraction.ok) {
     signals.push({
@@ -102,6 +114,13 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
       signals,
       telemetry,
       agent_workspace_path: options.agentWorkspacePath,
+      timings_ms: createAgentTimings(
+        startedAt,
+        workspacePrepareMs,
+        workspacePrepareResult,
+        processMs,
+        submissionExtractMs,
+      ),
       artifacts,
     };
   }
@@ -133,7 +152,32 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     telemetry,
     submission: extraction.submission,
     agent_workspace_path: options.agentWorkspacePath,
+    timings_ms: createAgentTimings(
+      startedAt,
+      workspacePrepareMs,
+      workspacePrepareResult,
+      processMs,
+      submissionExtractMs,
+    ),
     artifacts,
+  };
+}
+
+function createAgentTimings(
+  startedAt: number,
+  workspacePrepareMs: number,
+  workspacePrepareResult: Awaited<ReturnType<typeof createAgentWorkspace>>,
+  processMs: number,
+  submissionExtractMs: number,
+): AgentRunResult["timings_ms"] {
+  return {
+    total_ms: Date.now() - startedAt,
+    workspace_prepare_ms: workspacePrepareMs,
+    workspace_prepare_strategy: workspacePrepareResult.strategy,
+    workspace_prepare_reused: workspacePrepareResult.reused,
+    workspace_prepare_fallback_used: workspacePrepareResult.fallback_used,
+    process_ms: processMs,
+    submission_extract_ms: submissionExtractMs,
   };
 }
 
@@ -321,18 +365,23 @@ async function createAgentWorkspace(
   preparedBaselinePath: string,
   agentWorkspacePath: string,
   overwrite: boolean,
-): Promise<void> {
-  if (await pathExists(agentWorkspacePath)) {
-    if (!overwrite) {
-      throw new Error(`Agent workspace already exists: ${agentWorkspacePath}`);
-    }
-    const resolvedPath = path.resolve(agentWorkspacePath);
-    if (isFilesystemRoot(resolvedPath)) {
-      throw new Error(`Refusing to remove filesystem root: ${agentWorkspacePath}`);
-    }
-    await safeRemoveDescendant(path.dirname(resolvedPath), resolvedPath);
+  preparedBaselineCommit: string | undefined,
+) {
+  if (preparedBaselineCommit) {
+    return prepareResettableGitWorkspace({
+      preparedBaselinePath,
+      workspacePath: agentWorkspacePath,
+      baselineCommit: preparedBaselineCommit,
+    });
   }
-  await cp(preparedBaselinePath, agentWorkspacePath, { recursive: true, verbatimSymlinks: true });
+  if (!overwrite && (await pathExists(agentWorkspacePath))) {
+    throw new Error(`Agent workspace already exists: ${agentWorkspacePath}`);
+  }
+  return prepareCopiedWorkspace({
+    preparedBaselinePath,
+    workspacePath: agentWorkspacePath,
+    overwrite,
+  });
 }
 
 async function writeArtifact(

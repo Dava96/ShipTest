@@ -79,6 +79,7 @@ export interface AgentTelemetry {
 
 export interface AgentRunOptions {
   readonly preparedBaselinePath: string;
+  readonly preparedBaselineCommit?: string;
   readonly agentWorkspacePath: string;
   readonly configDir: string;
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
@@ -97,6 +98,15 @@ export interface AgentRunResult {
   readonly telemetry: AgentTelemetry;
   readonly submission?: Submission;
   readonly agent_workspace_path: string;
+  readonly timings_ms: {
+    readonly total_ms: number;
+    readonly workspace_prepare_ms: number;
+    readonly workspace_prepare_strategy: "copy" | "resettable_git";
+    readonly workspace_prepare_reused: boolean;
+    readonly workspace_prepare_fallback_used: boolean;
+    readonly process_ms: number;
+    readonly submission_extract_ms: number;
+  };
   readonly artifacts: Record<string, string>;
 }
 

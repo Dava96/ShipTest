@@ -35,6 +35,10 @@ function renderReport(results: RunResults, attempts: readonly AttemptReport[]): 
 <td>${escapeHtml(attempt.evaluation?.verdict ?? "not_run")}</td>
 <td>${attempt.evaluation?.score ?? ""}</td>
 <td>${attempt.agent.telemetry.usage.total_tokens}</td>
+<td>${formatDuration(attempt.timings_ms?.total_ms)}</td>
+<td>${formatDuration(attempt.timings_ms?.agent_workspace_prepare_ms)}</td>
+<td>${formatDuration(attempt.timings_ms?.evaluation_workspace_prepare_ms)}</td>
+<td>${formatDuration(attempt.timings_ms?.evaluation_scoring_ms)}</td>
 <td>${artifactLink(attempt.artifacts.candidate_patch, "patch")}</td>
 <td>${artifactLink(attempt.artifacts.attempt_json, "json")}</td>
 </tr>`,
@@ -67,10 +71,18 @@ code { background: #f4f6f7; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
   <div class="card"><strong>Needs review</strong><br>${results.summary.needs_review}</div>
   <div class="card"><strong>Failed</strong><br>${results.summary.failed}</div>
   <div class="card"><strong>Total tokens</strong><br>${results.summary.total_tokens}</div>
+  <div class="card"><strong>Elapsed</strong><br>${formatDuration(results.summary.duration_ms)}</div>
 </div>
+<h2>Benchmarks</h2>
+<table>
+<thead><tr><th>Benchmark</th><th>Attempts</th><th>Elapsed</th></tr></thead>
+<tbody>
+${renderBenchmarkRows(results)}
+</tbody>
+</table>
 <h2>Attempts</h2>
 <table>
-<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Tokens</th><th>Patch</th><th>Attempt</th></tr></thead>
+<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Tokens</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Patch</th><th>Attempt</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -78,6 +90,28 @@ ${rows}
 </body>
 </html>
 `;
+}
+
+function renderBenchmarkRows(results: RunResults): string {
+  return results.benchmark_results
+    .map(
+      (benchmark) => `<tr>
+<td>${escapeHtml(benchmark.benchmark_id)}</td>
+<td>${benchmark.attempts.length}</td>
+<td>${formatDuration(benchmark.duration_ms)}</td>
+</tr>`,
+    )
+    .join("\n");
+}
+
+function formatDuration(durationMs: number | undefined): string {
+  if (durationMs === undefined) {
+    return "";
+  }
+  const totalSeconds = Math.round(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
 function artifactLink(artifactPath: string | undefined, label: string): string {

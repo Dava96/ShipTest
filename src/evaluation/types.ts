@@ -48,6 +48,7 @@ export interface EvaluationSignal {
 
 export interface CleanRoomEvaluationOptions {
   readonly preparedBaselinePath: string;
+  readonly preparedBaselineCommit?: string;
   readonly evaluationWorkspacePath: string;
   readonly configDir: string;
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
@@ -67,5 +68,16 @@ export interface CleanRoomEvaluationResult {
   readonly checks: readonly EvaluationCheck[];
   readonly signals: readonly EvaluationSignal[];
   readonly commands: readonly CommandResult[];
+  readonly timings_ms: {
+    readonly total_ms: number;
+    readonly workspace_prepare_ms: number;
+    readonly workspace_prepare_strategy: "copy" | "resettable_git";
+    readonly workspace_prepare_reused: boolean;
+    readonly workspace_prepare_fallback_used: boolean;
+    readonly patch_apply_ms: number;
+    readonly hidden_payload_ms: number;
+    readonly scoring_ms: number;
+    readonly setup_rerun_ms: number;
+  };
   readonly artifacts: Record<string, string>;
 }

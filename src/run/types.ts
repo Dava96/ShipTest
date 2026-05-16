@@ -52,6 +52,25 @@ export interface AttemptReport {
   readonly human_review: {
     readonly status: "pending" | "acceptable" | "needs_changes" | "unacceptable";
   };
+  readonly timings_ms?: {
+    readonly total_ms: number;
+    readonly agent_total_ms: number;
+    readonly agent_workspace_prepare_ms: number;
+    readonly agent_workspace_prepare_strategy: "copy" | "resettable_git";
+    readonly agent_workspace_prepare_reused: boolean;
+    readonly agent_workspace_prepare_fallback_used: boolean;
+    readonly agent_process_ms: number;
+    readonly agent_submission_extract_ms: number;
+    readonly evaluation_total_ms: number;
+    readonly evaluation_workspace_prepare_ms: number;
+    readonly evaluation_workspace_prepare_strategy: "copy" | "resettable_git";
+    readonly evaluation_workspace_prepare_reused: boolean;
+    readonly evaluation_workspace_prepare_fallback_used: boolean;
+    readonly evaluation_patch_apply_ms: number;
+    readonly evaluation_hidden_payload_ms: number;
+    readonly evaluation_scoring_ms: number;
+    readonly evaluation_setup_rerun_ms: number;
+  };
   readonly artifacts: Record<string, string>;
 }
 
@@ -74,11 +93,13 @@ export interface RunResults {
     readonly needs_review: number;
     readonly failed: number;
     readonly total_tokens: number;
+    readonly duration_ms?: number;
     readonly estimated_cost_usd?: number;
   };
   readonly benchmark_results: readonly {
     readonly benchmark_id: string;
     readonly attempts: readonly string[];
+    readonly duration_ms?: number;
   }[];
   readonly artifacts: {
     readonly report_html: string;
