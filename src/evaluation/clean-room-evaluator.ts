@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { minimatch } from "minimatch";
 
@@ -7,7 +7,10 @@ import { DependencyChangePolicy, EvaluationPolicyPreset } from "../config/schema
 import { runShellCommand } from "../execution/run-command.js";
 import type { CommandResult } from "../results/types.js";
 import { applySubmissionDiff } from "../submission/apply.js";
-import { isFilesystemRoot, pathExists, safeRemoveDescendant } from "../utils/filesystem.js";
+import {
+  prepareCopiedWorkspace,
+  prepareResettableGitWorkspace,
+} from "../workspace/resettable-workspace.js";
 import { EvaluationCheckCode } from "./check-codes.js";
 import { applyHiddenEvaluationPayload } from "./hidden-payload.js";
 import type {
@@ -60,6 +63,8 @@ const DependencyPathPatterns = [
 export async function runCleanRoomEvaluation(
   options: CleanRoomEvaluationOptions,
 ): Promise<CleanRoomEvaluationResult> {
+  const startedAt = Date.now();
+  const timings = createEmptyEvaluationTimings();
   const checks: EvaluationCheck[] = [];
   const signals: EvaluationSignal[] = [];
   const commands: CommandResult[] = [];
@@ -72,13 +77,29 @@ export async function runCleanRoomEvaluation(
       path.dirname(options.evaluationWorkspacePath),
       `${path.basename(options.evaluationWorkspacePath)}-artifacts`,
     );
+  const makeResult = (
+    resultOptions: Omit<Parameters<typeof result>[0], "timings_ms">,
+  ): CleanRoomEvaluationResult =>
+    result({
+      ...resultOptions,
+      timings_ms: finishEvaluationTimings(timings, startedAt),
+    });
 
   try {
-    await createEvaluationWorkspace(
-      options.preparedBaselinePath,
-      options.evaluationWorkspacePath,
-      options.overwrite ?? false,
+    const workspacePrepareResult = await measureEvaluationTiming(
+      timings,
+      "workspace_prepare_ms",
+      () =>
+        createEvaluationWorkspace(
+          options.preparedBaselinePath,
+          options.evaluationWorkspacePath,
+          options.overwrite ?? false,
+          options.preparedBaselineCommit,
+        ),
     );
+    timings.workspace_prepare_strategy = workspacePrepareResult.strategy;
+    timings.workspace_prepare_reused = workspacePrepareResult.reused;
+    timings.workspace_prepare_fallback_used = workspacePrepareResult.fallback_used;
     checks.push({
       code: EvaluationCheckCode.CleanRoomWorkspaceCreated,
       severity: CheckSeverity.Pass,
@@ -93,7 +114,7 @@ export async function runCleanRoomEvaluation(
       message: `Failed to create clean-room evaluation workspace. ${formatError(error)}`,
       paths: [options.evaluationWorkspacePath],
     });
-    return result({
+    return makeResult({
       ok: false,
       status: "INFRASTRUCTURE_ERROR",
       verdict: "inconclusive",
@@ -113,9 +134,8 @@ export async function runCleanRoomEvaluation(
     options.submission.diff,
   );
 
-  const applyResult = await applySubmissionDiff(
-    options.evaluationWorkspacePath,
-    options.submission.diff,
+  const applyResult = await measureEvaluationTiming(timings, "patch_apply_ms", () =>
+    applySubmissionDiff(options.evaluationWorkspacePath, options.submission.diff),
   );
   checks.push(...applyResult.checks.map(submissionCheckToEvaluationCheck));
   if (!applyResult.ok) {
@@ -125,7 +145,7 @@ export async function runCleanRoomEvaluation(
       message: "Candidate patch could not be applied to a fresh prepared baseline.",
       weight: 100,
     });
-    return result({
+    return makeResult({
       ok: false,
       status: "PARTIAL",
       verdict: "inconclusive",
@@ -199,7 +219,7 @@ export async function runCleanRoomEvaluation(
       weight: 100,
       paths: dependencyChanges,
     });
-    return result({
+    return makeResult({
       ok: false,
       status: "EVALUATED",
       verdict: "policy_issue",
@@ -216,14 +236,16 @@ export async function runCleanRoomEvaluation(
     dependencyChanges.length > 0 &&
     options.benchmark.evaluation.rerun_setup_on_dependency_change
   ) {
-    const setupResult = await runSetupCommands({
-      artifactRoot,
-      artifacts,
-      commands,
-      commandOutputMaxBytes,
-      cwd: options.evaluationWorkspacePath,
-      setupCommands: options.repositoryEnvironment.setup_commands,
-    });
+    const setupResult = await measureEvaluationTiming(timings, "setup_rerun_ms", () =>
+      runSetupCommands({
+        artifactRoot,
+        artifacts,
+        commands,
+        commandOutputMaxBytes,
+        cwd: options.evaluationWorkspacePath,
+        setupCommands: options.repositoryEnvironment.setup_commands,
+      }),
+    );
     checks.push(...setupResult.checks);
     if (!setupResult.ok) {
       signals.push({
@@ -232,7 +254,7 @@ export async function runCleanRoomEvaluation(
         message: "Setup rerun failed after dependency changes.",
         weight: 80,
       });
-      return result({
+      return makeResult({
         ok: false,
         status: "PARTIAL",
         verdict: "inconclusive",
@@ -246,11 +268,13 @@ export async function runCleanRoomEvaluation(
     }
   }
 
-  const hiddenPayloadResult = await applyHiddenEvaluationPayload({
-    workspacePath: options.evaluationWorkspacePath,
-    configDir: options.configDir,
-    evaluation: options.benchmark.evaluation,
-  });
+  const hiddenPayloadResult = await measureEvaluationTiming(timings, "hidden_payload_ms", () =>
+    applyHiddenEvaluationPayload({
+      workspacePath: options.evaluationWorkspacePath,
+      configDir: options.configDir,
+      evaluation: options.benchmark.evaluation,
+    }),
+  );
   checks.push(...hiddenPayloadResult.checks);
   if (!hiddenPayloadResult.ok) {
     signals.push({
@@ -259,7 +283,7 @@ export async function runCleanRoomEvaluation(
       message: "Hidden evaluation assets could not be applied to the clean-room workspace.",
       weight: 100,
     });
-    return result({
+    return makeResult({
       ok: false,
       status: "INVALID_BENCHMARK",
       verdict: "invalid_benchmark",
@@ -271,11 +295,13 @@ export async function runCleanRoomEvaluation(
     });
   }
 
-  const scoringCommand = await runShellCommand({
-    command: options.benchmark.evaluation.scoring_command,
-    cwd: options.evaluationWorkspacePath,
-    maxOutputBytes: commandOutputMaxBytes,
-  });
+  const scoringCommand = await measureEvaluationTiming(timings, "scoring_ms", () =>
+    runShellCommand({
+      command: options.benchmark.evaluation.scoring_command,
+      cwd: options.evaluationWorkspacePath,
+      maxOutputBytes: commandOutputMaxBytes,
+    }),
+  );
   const scoringCommandResult = await recordCommandArtifact({
     artifactRoot,
     artifacts,
@@ -312,7 +338,7 @@ export async function runCleanRoomEvaluation(
   }
 
   const finalVerdict = verdictForSignals(signals, options.benchmark.evaluation.policy_preset);
-  return result({
+  return makeResult({
     ok: true,
     status: "EVALUATED",
     verdict: finalVerdict,
@@ -329,20 +355,19 @@ async function createEvaluationWorkspace(
   preparedBaselinePath: string,
   evaluationWorkspacePath: string,
   overwrite: boolean,
-): Promise<void> {
-  if (await pathExists(evaluationWorkspacePath)) {
-    if (!overwrite) {
-      throw new Error(`Evaluation workspace already exists: ${evaluationWorkspacePath}`);
-    }
-    const resolvedPath = path.resolve(evaluationWorkspacePath);
-    if (isFilesystemRoot(resolvedPath)) {
-      throw new Error(`Refusing to remove filesystem root: ${evaluationWorkspacePath}`);
-    }
-    await safeRemoveDescendant(path.dirname(resolvedPath), resolvedPath);
+  preparedBaselineCommit: string | undefined,
+) {
+  if (preparedBaselineCommit) {
+    return prepareResettableGitWorkspace({
+      preparedBaselinePath,
+      workspacePath: evaluationWorkspacePath,
+      baselineCommit: preparedBaselineCommit,
+    });
   }
-  await cp(preparedBaselinePath, evaluationWorkspacePath, {
-    recursive: true,
-    verbatimSymlinks: true,
+  return prepareCopiedWorkspace({
+    preparedBaselinePath,
+    workspacePath: evaluationWorkspacePath,
+    overwrite,
   });
 }
 
@@ -499,6 +524,7 @@ function result(options: {
   readonly checks: readonly EvaluationCheck[];
   readonly signals: readonly EvaluationSignal[];
   readonly commands: readonly CommandResult[];
+  readonly timings_ms: CleanRoomEvaluationResult["timings_ms"];
   readonly artifacts: Record<string, string>;
 }): CleanRoomEvaluationResult {
   return {
@@ -510,7 +536,55 @@ function result(options: {
     checks: options.checks,
     signals: options.signals,
     commands: options.commands,
+    timings_ms: options.timings_ms,
     artifacts: options.artifacts,
+  };
+}
+
+type MutableEvaluationTimings = {
+  -readonly [Key in keyof CleanRoomEvaluationResult["timings_ms"]]: CleanRoomEvaluationResult["timings_ms"][Key];
+};
+
+function createEmptyEvaluationTimings(): MutableEvaluationTimings {
+  return {
+    total_ms: 0,
+    workspace_prepare_ms: 0,
+    workspace_prepare_strategy: "copy",
+    workspace_prepare_reused: false,
+    workspace_prepare_fallback_used: false,
+    patch_apply_ms: 0,
+    hidden_payload_ms: 0,
+    scoring_ms: 0,
+    setup_rerun_ms: 0,
+  };
+}
+
+type EvaluationTimingNumberKey = {
+  [Key in keyof CleanRoomEvaluationResult["timings_ms"]]: CleanRoomEvaluationResult["timings_ms"][Key] extends number
+    ? Key
+    : never;
+}[keyof CleanRoomEvaluationResult["timings_ms"]];
+
+async function measureEvaluationTiming<T>(
+  timings: MutableEvaluationTimings,
+  key: Exclude<EvaluationTimingNumberKey, "total_ms">,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    timings[key] += Date.now() - startedAt;
+  }
+}
+
+function finishEvaluationTimings(
+  timings: MutableEvaluationTimings,
+  startedAt: number,
+): CleanRoomEvaluationResult["timings_ms"] {
+  return {
+    ...timings,
+    total_ms: Date.now() - startedAt,
   };
 }
 

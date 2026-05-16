@@ -27,7 +27,8 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
     benchmarkIds: options.benchmarkIds,
     modelIds: options.modelIds,
   });
-  const startedAt = new Date().toISOString();
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
   await writeRunEvent(layout.eventsPath, {
     type: "run_started",
     run_id: layout.runId,
@@ -35,7 +36,14 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
   });
 
   const attempts: AttemptReport[] = [];
-  const preparedBaselines = new Map<string, string>();
+  const preparedBaselines = new Map<
+    string,
+    {
+      readonly path: string;
+      readonly baselineCommit: string | undefined;
+      readonly workspaceKey: string;
+    }
+  >();
   const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
   for (const benchmarkId of benchmarkIds) {
     options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
@@ -58,20 +66,33 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
     if (!benchmarkDoctorResult.prepared_baseline_path) {
       throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
     }
-    preparedBaselines.set(benchmarkId, benchmarkDoctorResult.prepared_baseline_path);
+    preparedBaselines.set(benchmarkId, {
+      path: benchmarkDoctorResult.prepared_baseline_path,
+      baselineCommit:
+        benchmarkDoctorResult.prepared_baseline_metadata?.clean_git_repo.baseline_commit,
+      workspaceKey:
+        benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
+        sanitizePathSegment(benchmarkId),
+    });
   }
 
   for (const item of plan.items) {
+    const attemptStartedAtMs = Date.now();
     const attemptLayout = await createAttemptLayout({
       runRootPath: layout.runRootPath,
       benchmarkId: item.benchmark.id,
       modelId: item.model.id,
       attempt: 1,
     });
-    const preparedBaselinePath = preparedBaselines.get(item.benchmark.id);
-    if (!preparedBaselinePath) {
+    const preparedBaseline = preparedBaselines.get(item.benchmark.id);
+    if (!preparedBaseline) {
       throw new Error(`Prepared baseline is missing for benchmark '${item.benchmark.id}'.`);
     }
+    const workspaceLayout = createResettableWorkspaceLayout({
+      workspaceRootPath: layout.workspaceRootPath,
+      workspaceKey: preparedBaseline.workspaceKey,
+      modelId: item.model.id,
+    });
 
     await writeRunEvent(layout.eventsPath, {
       type: "attempt_started",
@@ -82,8 +103,11 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
     options.onProgress?.(`[${item.benchmark.id}/${item.model.id}] Running agent.`);
 
     const agentResult = await runPiJsonAgentAttempt({
-      preparedBaselinePath,
-      agentWorkspacePath: attemptLayout.agentWorkspacePath,
+      preparedBaselinePath: preparedBaseline.path,
+      ...(preparedBaseline.baselineCommit
+        ? { preparedBaselineCommit: preparedBaseline.baselineCommit }
+        : {}),
+      agentWorkspacePath: workspaceLayout.agentWorkspacePath,
       configDir: context.configDir,
       benchmark: item.benchmark,
       model: item.model,
@@ -111,8 +135,11 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         `[${item.benchmark.id}/${item.model.id}] Running clean-room evaluation.`,
       );
       evaluationResult = await runCleanRoomEvaluation({
-        preparedBaselinePath,
-        evaluationWorkspacePath: attemptLayout.evaluationWorkspacePath,
+        preparedBaselinePath: preparedBaseline.path,
+        ...(preparedBaseline.baselineCommit
+          ? { preparedBaselineCommit: preparedBaseline.baselineCommit }
+          : {}),
+        evaluationWorkspacePath: workspaceLayout.evaluationWorkspacePath,
         configDir: context.configDir,
         benchmark: item.benchmark,
         repositoryEnvironment: context.config.repository_environment,
@@ -129,6 +156,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       benchmark: item.benchmark,
       model: item.model,
       agentResult,
+      timingsMs: createAttemptTimings(attemptStartedAtMs, agentResult, evaluationResult),
       ...(evaluationResult ? { evaluationResult } : {}),
     });
     await mkdir(path.dirname(attemptLayout.attemptJsonPath), { recursive: true });
@@ -151,6 +179,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
     reportPath: layout.reportPath,
     eventsPath: layout.eventsPath,
     attempts,
+    durationMs: Date.now() - startedAtMs,
   });
   await writeFile(layout.resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
   await writeHtmlReport({ runRootPath: layout.runRootPath, reportPath: layout.reportPath });
@@ -168,6 +197,26 @@ export async function regenerateReport(runRootPath: string): Promise<string> {
   return reportPath;
 }
 
+function createResettableWorkspaceLayout(options: {
+  readonly workspaceRootPath: string;
+  readonly workspaceKey: string;
+  readonly modelId: string;
+}): { readonly agentWorkspacePath: string; readonly evaluationWorkspacePath: string } {
+  const rootPath = path.join(
+    options.workspaceRootPath,
+    sanitizePathSegment(options.workspaceKey),
+    sanitizePathSegment(options.modelId),
+  );
+  return {
+    agentWorkspacePath: path.join(rootPath, "agent"),
+    evaluationWorkspacePath: path.join(rootPath, "evaluation"),
+  };
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 function createAttemptReport(options: {
   readonly runId: string;
   readonly runRootPath: string;
@@ -180,6 +229,7 @@ function createAttemptReport(options: {
   readonly model: Parameters<typeof runPiJsonAgentAttempt>[0]["model"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
   readonly evaluationResult?: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
+  readonly timingsMs: NonNullable<AttemptReport["timings_ms"]>;
 }): AttemptReport {
   const status = classifyAttemptStatus(options.agentResult.ok, options.evaluationResult?.ok);
   const artifacts: Record<string, string> = {
@@ -226,7 +276,37 @@ function createAttemptReport(options: {
       : {}),
     ...(options.evaluationResult ? { evaluation: options.evaluationResult } : {}),
     human_review: { status: "pending" },
+    timings_ms: options.timingsMs,
     artifacts,
+  };
+}
+
+function createAttemptTimings(
+  attemptStartedAtMs: number,
+  agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>,
+  evaluationResult: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined,
+): NonNullable<AttemptReport["timings_ms"]> {
+  return {
+    total_ms: Date.now() - attemptStartedAtMs,
+    agent_total_ms: agentResult.timings_ms.total_ms,
+    agent_workspace_prepare_ms: agentResult.timings_ms.workspace_prepare_ms,
+    agent_workspace_prepare_strategy: agentResult.timings_ms.workspace_prepare_strategy,
+    agent_workspace_prepare_reused: agentResult.timings_ms.workspace_prepare_reused,
+    agent_workspace_prepare_fallback_used: agentResult.timings_ms.workspace_prepare_fallback_used,
+    agent_process_ms: agentResult.timings_ms.process_ms,
+    agent_submission_extract_ms: agentResult.timings_ms.submission_extract_ms,
+    evaluation_total_ms: evaluationResult?.timings_ms.total_ms ?? 0,
+    evaluation_workspace_prepare_ms: evaluationResult?.timings_ms.workspace_prepare_ms ?? 0,
+    evaluation_workspace_prepare_strategy:
+      evaluationResult?.timings_ms.workspace_prepare_strategy ?? "copy",
+    evaluation_workspace_prepare_reused:
+      evaluationResult?.timings_ms.workspace_prepare_reused ?? false,
+    evaluation_workspace_prepare_fallback_used:
+      evaluationResult?.timings_ms.workspace_prepare_fallback_used ?? false,
+    evaluation_patch_apply_ms: evaluationResult?.timings_ms.patch_apply_ms ?? 0,
+    evaluation_hidden_payload_ms: evaluationResult?.timings_ms.hidden_payload_ms ?? 0,
+    evaluation_scoring_ms: evaluationResult?.timings_ms.scoring_ms ?? 0,
+    evaluation_setup_rerun_ms: evaluationResult?.timings_ms.setup_rerun_ms ?? 0,
   };
 }
 
@@ -251,6 +331,7 @@ function createRunResults(options: {
   readonly reportPath: string;
   readonly eventsPath: string;
   readonly attempts: readonly AttemptReport[];
+  readonly durationMs: number;
 }): RunResults {
   const byBenchmark = new Map<string, string[]>();
   for (const attempt of options.attempts) {
@@ -290,11 +371,15 @@ function createRunResults(options: {
         (total, attempt) => total + attempt.agent.telemetry.usage.total_tokens,
         0,
       ),
+      duration_ms: options.durationMs,
       ...(estimatedCost === undefined ? {} : { estimated_cost_usd: estimatedCost }),
     },
     benchmark_results: [...byBenchmark.entries()].map(([benchmark_id, attempts]) => ({
       benchmark_id,
       attempts,
+      duration_ms: options.attempts
+        .filter((attempt) => attempt.benchmark_id === benchmark_id)
+        .reduce((total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0), 0),
     })),
     artifacts: {
       report_html: toRunRelativePath(options.runRootPath, options.reportPath),

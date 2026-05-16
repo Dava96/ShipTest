@@ -9,9 +9,10 @@ repository_environment:
   source: local
   setup_commands:
     - npm ci
+    - npm run check:fix
   validation_commands:
     required:
-      - npm run test:run
+      - node --version
     advisory: []
   teardown_commands: []
 
@@ -29,29 +30,28 @@ shiptest_runner:
     cache: true
 
 models:
-  - id: sonnet-4.5
-    provider: anthropic
-    model: claude-sonnet-4.5
+  - id: gpt-5.4-mini
+    provider: openai-codex
+    model: gpt-5.4-mini
 
 defaults:
   run:
     models:
-      - sonnet-4.5
+      - gpt-5.4-mini
   limits:
     max_attempt_mins: 30
     max_turns: 40
     max_tool_calls: 200
-    max_total_tokens: 350000
+    max_total_tokens: 1000000
   agent_context:
     load_context_files: false
-    # AGENTS.md and CLAUDE.md are disabled by default for controlled comparisons.
     exclude_paths:
       - ".shiptest/**"
       - "dist/**"
     instruction_files: []
   evaluation:
     clean_room: true
-    scoring_command: npm run test:run
+    scoring_command: npm run typecheck && npm run test:run && npm run build
     hidden_evaluation_files: []
     hidden_evaluation_directories: []
     hidden_evaluation_patches: []
@@ -59,7 +59,55 @@ defaults:
     rerun_setup_on_dependency_change: false
 
 benchmarks:
-  - id: cli-validation-smoke
+  - id: optional-project-repo-default
+    type: implementation
+    base_commit: fe58898
+    task: tasks/optional-project-repo-default.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/config/config.test.ts
+
+  - id: refactor-test-config-fixture-introduction
+    type: implementation
+    base_commit: feb21f0
+    task: tasks/refactor-test-config-fixture-introduction.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/config/config.test.ts
+
+  - id: refactor-test-config-fixture-runner-adoption
+    type: implementation
+    base_commit: 2a7e59a
+    task: tasks/refactor-test-config-fixture-runner-adoption.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
+
+  - id: refactor-test-config-fixture-suite-adoption
+    type: implementation
+    base_commit: f1e0dc5
+    task: tasks/refactor-test-config-fixture-suite-adoption.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/config/config.test.ts src/doctor/run-doctor.test.ts src/evaluation/clean-room-evaluator.test.ts src/evaluation/hidden-payload.test.ts src/run/plan.test.ts src/run/run.test.ts src/snapshot/snapshot.test.ts
+
+  - id: refactor-run-directory-layout
+    type: implementation
+    base_commit: dd611d7
+    task: tasks/refactor-run-directory-layout.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/run-layout.test.ts src/run/run.test.ts
+
+  - id: refactor-resettable-workspace-pool
+    type: implementation
+    base_commit: e0aabd9
+    task: tasks/refactor-resettable-workspace-pool.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/workspace/resettable-workspace.test.ts src/agent/pi-json-harness.test.ts src/evaluation/clean-room-evaluator.test.ts src/run/run.test.ts
+
+  - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md
     attempts: 1

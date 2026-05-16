@@ -42,6 +42,7 @@ export async function initializeCleanGitRepo(
     await gitOperations.git(["config", "user.email", userEmail], workspacePath);
     await gitOperations.git(["config", "user.name", userName], workspacePath);
     await gitOperations.git(["config", "--local", "core.autocrlf", "false"], workspacePath);
+    await gitOperations.git(["config", "--local", "core.longpaths", "true"], workspacePath);
     await gitOperations.git(["config", "--local", "core.hooksPath", hooksPath], workspacePath);
     await gitOperations.git(["add", "-A"], workspacePath);
     await gitOperations.git(["commit", "--allow-empty", "-m", commitMessage], workspacePath);

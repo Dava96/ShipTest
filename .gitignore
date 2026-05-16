@@ -39,9 +39,10 @@ lerna-debug.log*
 # ShipTest generated artifacts
 .shiptest/runs/
 .shiptest/cache/
+.shiptest/workspaces/
 .shiptest/tmp/
-reports/
-results/
+/reports/
+/results/
 
 # Local project notes/assets
 /adrs/
