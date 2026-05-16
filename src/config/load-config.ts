@@ -43,8 +43,18 @@ export async function loadShiptestConfigContext(
     );
   }
 
+  const config = projectRepoWasOmitted(rawConfig)
+    ? {
+        ...parsed.data,
+        project: {
+          ...parsed.data.project,
+          repo: await resolveDefaultProjectRepo(configDir),
+        },
+      }
+    : parsed.data;
+
   const context = {
-    config: parsed.data,
+    config,
     configPath: resolvedConfigPath,
     configDir,
   } satisfies ShiptestConfigContext;
@@ -78,6 +88,36 @@ async function resolveConfigPath(configPath?: string): Promise<string> {
       message: `Could not find ${defaultConfigNames.join(", ")}`,
     },
   ]);
+}
+
+async function resolveDefaultProjectRepo(configDir: string): Promise<string> {
+  const gitRoot = await findNearestGitRoot(configDir);
+  return gitRoot ?? configDir;
+}
+
+async function findNearestGitRoot(startPath: string): Promise<string | undefined> {
+  let currentPath = path.resolve(startPath);
+  while (true) {
+    if (await pathExists(path.join(currentPath, ".git"))) {
+      return currentPath;
+    }
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      return undefined;
+    }
+    currentPath = parentPath;
+  }
+}
+
+function projectRepoWasOmitted(rawConfig: unknown): boolean {
+  if (!rawConfig || typeof rawConfig !== "object") {
+    return false;
+  }
+  const project = (rawConfig as { readonly project?: unknown }).project;
+  if (!project || typeof project !== "object") {
+    return false;
+  }
+  return !("repo" in project);
 }
 
 async function assertFileExists(filePath: string, pathName: string): Promise<void> {
