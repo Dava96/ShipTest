@@ -4,6 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { initializeCleanGitRepo } from "../baseline/clean-git-repo.js";
+import {
+  benchmark,
+  createShiptestConfigFixture,
+  model,
+} from "../test-support/shiptest-config-fixture.js";
 import { regenerateReport, runShiptest } from "./run.js";
 
 describe("runShiptest", () => {
@@ -94,13 +99,10 @@ async function createFixture(options: { readonly failingPi?: boolean } = {}): Pr
 }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-run-"));
   const repoPath = path.join(root, "repo");
-  const configDir = path.join(root, "config");
   const runRootPath = path.join(root, "run");
   await mkdir(path.join(repoPath, "src"), { recursive: true });
-  await mkdir(path.join(configDir, "tasks"), { recursive: true });
   await writeFile(path.join(repoPath, "src", "index.txt"), "baseline\n", "utf8");
   await initializeCleanGitRepo(repoPath);
-  await writeFile(path.join(configDir, "tasks", "task.md"), "Create generated file.\n", "utf8");
 
   const fakePiPath = path.join(root, "fake-pi.cjs");
   await writeFile(
@@ -119,40 +121,17 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     "utf8",
   );
 
-  const configPath = path.join(configDir, "shiptest.yaml");
-  await writeFile(
-    configPath,
-    `version: 1
-project:
-  name: fixture
-  repo: ${repoPath.replaceAll("\\", "/")}
-repository_environment:
-  validation_commands:
-    required:
-      - node --version
-models:
-  - id: fake
-    provider: openai-codex
-    model: fake-model
-defaults:
-  run:
-    models:
-      - fake
-  limits:
-    max_attempt_mins: 1
-    max_turns: 10
-    max_tool_calls: 10
-    max_total_tokens: 1000
-  agent_context: {}
-  evaluation:
-    scoring_command: node -e "process.exit(0)"
-benchmarks:
-  - id: bench
-    type: implementation
-    task: tasks/task.md
-`,
-    "utf8",
-  );
+  const configFixture = await createShiptestConfigFixture({
+    root,
+    configSubdir: "config",
+    projectRepo: repoPath,
+    repositoryEnvironment: { validation_commands: { required: ["node --version"] } },
+    models: [model("fake")],
+    defaultModels: ["fake"],
+    scoringCommand: `node -e "process.exit(0)"`,
+    benchmarks: [benchmark("bench", { task: "tasks/task.md" })],
+    files: { "tasks/task.md": "Create generated file.\n" },
+  });
 
-  return { configPath, fakePiPath, runRootPath };
+  return { configPath: configFixture.configPath, fakePiPath, runRootPath };
 }

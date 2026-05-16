@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-
+import { createShiptestConfigFixture } from "../test-support/shiptest-config-fixture.js";
 import type { ShiptestConfigError } from "./errors.js";
 import {
   loadShiptestConfig,
@@ -85,83 +85,26 @@ describe("config loading and validation", () => {
   it("defaults omitted project.repo to the nearest git root from the config file", async () => {
     const root = await createTempDirectory();
     const repo = path.join(root, "repo");
-    const configDir = path.join(repo, ".shiptest");
-    await mkdir(path.join(repo, ".git"), { recursive: true });
-    await mkdir(path.join(repo, "src"), { recursive: true });
-    await mkdir(path.join(configDir, "tasks"), { recursive: true });
-    await writeFile(path.join(configDir, "tasks", "task.md"), "Task\n", "utf8");
-    await writeFile(path.join(repo, "src", "index.ts"), "export {};\n", "utf8");
-    const configPath = path.join(configDir, "shiptest.yaml");
-    await writeFile(
-      configPath,
-      `version: 1
-project:
-  name: payments-api
-repository_environment:
-  validation_commands:
-    required:
-      - npm test
-models:
-  - id: sonnet
-    provider: anthropic
-    model: claude
-defaults:
-  run:
-    models:
-      - sonnet
-  limits: {}
-  agent_context: {}
-  evaluation:
-    scoring_command: npm test
-benchmarks:
-  - id: invoice
-    type: implementation
-    task: tasks/task.md
-`,
-      "utf8",
-    );
+    await mkdir(repo, { recursive: true });
+    const fixture = await createShiptestConfigFixture({
+      root: repo,
+      configSubdir: ".shiptest",
+      createGitRoot: true,
+      projectRepo: "omit",
+    });
 
-    const context = await loadShiptestConfigContext(configPath);
+    const context = await loadShiptestConfigContext(fixture.configPath);
 
     expect(context.config.project.repo).toBe(repo);
   });
 
   it("falls back to the config directory when project.repo is omitted outside a git repo", async () => {
-    const root = await createTempDirectory();
-    await mkdir(path.join(root, "tasks"), { recursive: true });
-    await writeFile(path.join(root, "tasks", "task.md"), "Task\n", "utf8");
-    const configPath = path.join(root, "shiptest.yaml");
-    await writeFile(
-      configPath,
-      `version: 1
-project:
-  name: payments-api
-repository_environment:
-  validation_commands:
-    required:
-      - npm test
-models:
-  - id: sonnet
-    provider: anthropic
-    model: claude
-defaults:
-  run:
-    models:
-      - sonnet
-  limits: {}
-  agent_context: {}
-  evaluation:
-    scoring_command: npm test
-benchmarks:
-  - id: invoice
-    type: implementation
-    task: tasks/task.md
-`,
-      "utf8",
-    );
+    const fixture = await createShiptestConfigFixture({
+      projectRepo: "omit",
+    });
 
-    await expect(loadShiptestConfig(configPath)).resolves.toMatchObject({
-      project: { repo: root },
+    await expect(loadShiptestConfig(fixture.configPath)).resolves.toMatchObject({
+      project: { repo: fixture.configDir },
     });
   });
 

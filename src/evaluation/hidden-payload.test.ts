@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { type ResolvedShiptestConfig, ShiptestConfigSchema } from "../config/schema.js";
+import type { ResolvedShiptestConfig } from "../config/schema.js";
+import {
+  benchmark as configBenchmark,
+  createResolvedShiptestConfig,
+} from "../test-support/shiptest-config-fixture.js";
 import type { GitOperations } from "../utils/git.js";
 import { EvaluationCheckCode } from "./check-codes.js";
 import { applyHiddenEvaluationPayload } from "./hidden-payload.js";
@@ -314,27 +318,8 @@ async function createFixture(): Promise<Fixture> {
 function evaluationConfig(
   evaluation: Partial<ResolvedShiptestConfig["benchmarks"][number]["evaluation"]>,
 ): ResolvedShiptestConfig["benchmarks"][number]["evaluation"] {
-  const config = ShiptestConfigSchema.parse({
-    version: 1,
-    project: { name: "fixture", repo: "." },
-    repository_environment: { validation_commands: { required: ["node --version"] } },
-    models: [{ id: "model", provider: "openai", model: "gpt" }],
-    defaults: {
-      run: { models: ["model"] },
-      limits: {},
-      agent_context: {},
-      evaluation: {
-        scoring_command: "node --version",
-        ...evaluation,
-      },
-    },
-    benchmarks: [
-      {
-        id: "bench",
-        type: "implementation",
-        task: "task.md",
-      },
-    ],
+  const config = createResolvedShiptestConfig({
+    benchmarks: [configBenchmark("bench", { evaluation })],
   });
   const [benchmark] = config.benchmarks;
   if (!benchmark) {
