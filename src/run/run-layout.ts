@@ -1,8 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import { createRunId } from "./run-id.js";
-
 export interface RunLayout {
   readonly runId: string;
   readonly runRootPath: string;
@@ -24,25 +22,39 @@ export interface AttemptLayout {
   readonly changedFilesPath: string;
 }
 
+const MaxDailyRunDirectories = 9999;
+
 export async function createRunLayout(options: {
   readonly projectRootPath: string;
   readonly runRootPath?: string | undefined;
   readonly runId?: string | undefined;
+  readonly date?: Date | undefined;
 }): Promise<RunLayout> {
-  const runId = options.runId ?? createRunId();
-  const runRootPath = path.resolve(
-    options.runRootPath ?? path.join(options.projectRootPath, ".shiptest", "runs", runId),
-  );
+  const runsRootPath = path.join(options.projectRootPath, ".shiptest", "runs");
+  const allocatedRun = options.runRootPath
+    ? {
+        runId: options.runId ?? path.basename(options.runRootPath),
+        runRootPath: path.resolve(options.runRootPath),
+      }
+    : options.runId
+      ? {
+          runId: options.runId,
+          runRootPath: path.resolve(runsRootPath, options.runId),
+        }
+      : await allocateDailyRunDirectory(runsRootPath, options.date ?? new Date());
+
   const layout: RunLayout = {
-    runId,
-    runRootPath,
-    resultsPath: path.join(runRootPath, "results.json"),
-    eventsPath: path.join(runRootPath, "events.jsonl"),
-    reportPath: path.join(runRootPath, "report.html"),
-    doctorOutputPath: path.join(runRootPath, "doctor"),
+    runId: allocatedRun.runId,
+    runRootPath: allocatedRun.runRootPath,
+    resultsPath: path.join(allocatedRun.runRootPath, "results.json"),
+    eventsPath: path.join(allocatedRun.runRootPath, "events.jsonl"),
+    reportPath: path.join(allocatedRun.runRootPath, "report.html"),
+    doctorOutputPath: path.join(allocatedRun.runRootPath, "doctor"),
     cacheRootPath: path.join(options.projectRootPath, ".shiptest", "cache"),
   };
-  await mkdir(runRootPath, { recursive: true });
+  if (options.runRootPath || options.runId) {
+    await mkdir(allocatedRun.runRootPath, { recursive: true });
+  }
   return layout;
 }
 
@@ -79,4 +91,45 @@ export async function createAttemptLayout(options: {
 
 export function toRunRelativePath(runRootPath: string, artifactPath: string): string {
   return path.relative(runRootPath, artifactPath).replaceAll("\\", "/");
+}
+
+async function allocateDailyRunDirectory(
+  runsRootPath: string,
+  date: Date,
+): Promise<{ readonly runId: string; readonly runRootPath: string }> {
+  const dateDirectoryName = formatRunDate(date);
+  const dateRootPath = path.join(runsRootPath, dateDirectoryName);
+  await mkdir(dateRootPath, { recursive: true });
+
+  for (let runNumber = 1; runNumber <= MaxDailyRunDirectories; runNumber += 1) {
+    const runDirectoryName = `run-${String(runNumber).padStart(3, "0")}`;
+    const runRootPath = path.join(dateRootPath, runDirectoryName);
+    try {
+      await mkdir(runRootPath, { recursive: false });
+      return {
+        runId: `${dateDirectoryName}/${runDirectoryName}`,
+        runRootPath,
+      };
+    } catch (error) {
+      if (isDirectoryAlreadyExistsError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(
+    `Could not allocate a ShipTest run directory under ${dateRootPath}; exhausted ${MaxDailyRunDirectories} run slots.`,
+  );
+}
+
+function formatRunDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function isDirectoryAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
