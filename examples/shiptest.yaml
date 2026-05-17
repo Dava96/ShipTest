@@ -115,6 +115,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/run/model-availability.test.ts src/run/run.test.ts src/agent/pi-json-harness.test.ts
 
+  - id: report-total-estimated-cost
+    type: implementation
+    base_commit: 6f63300
+    task: tasks/report-total-estimated-cost.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/reporting/html-report.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md
