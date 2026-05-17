@@ -83,6 +83,7 @@ describe("HTML report", () => {
           needs_review: 0,
           failed: 0,
           total_tokens: 3,
+          estimated_cost_usd: 0.123456,
         },
         benchmark_results: [
           { benchmark_id: "invoice", attempts: ["benchmarks/invoice/attempts/001/attempt.json"] },
@@ -101,6 +102,8 @@ describe("HTML report", () => {
     expect(html).toContain("invoice&lt;script&gt;");
     expect(html).toContain("gpt-5.5&amp;test");
     expect(html).toContain("passed");
+    expect(html).toContain("Total estimated cost");
+    expect(html).toContain("$0.1235");
     expect(html).toContain("benchmarks/invoice/attempts/001/candidate.patch?x=&lt;y&gt;");
   });
 
@@ -179,6 +182,7 @@ describe("HTML report", () => {
     const html = await readFile(reportPath, "utf8");
     expect(html).toContain("not_run");
     expect(html).toContain("process_failed");
+    expect(html).toContain("not available");
   });
 });
 
