@@ -71,6 +71,7 @@ code { background: #f4f6f7; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
   <div class="card"><strong>Needs review</strong><br>${results.summary.needs_review}</div>
   <div class="card"><strong>Failed</strong><br>${results.summary.failed}</div>
   <div class="card"><strong>Total tokens</strong><br>${results.summary.total_tokens}</div>
+  <div class="card"><strong>Total estimated cost</strong><br>${formatUsd(results.summary.estimated_cost_usd)}</div>
   <div class="card"><strong>Elapsed</strong><br>${formatDuration(results.summary.duration_ms)}</div>
 </div>
 <h2>Benchmarks</h2>
@@ -102,6 +103,13 @@ function renderBenchmarkRows(results: RunResults): string {
 </tr>`,
     )
     .join("\n");
+}
+
+function formatUsd(value: number | undefined): string {
+  if (value === undefined) {
+    return "not available";
+  }
+  return `$${value.toFixed(4)}`;
 }
 
 function formatDuration(durationMs: number | undefined): string {
