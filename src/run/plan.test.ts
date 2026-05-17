@@ -24,6 +24,9 @@ describe("run plan", () => {
     ]);
     expect(formatRunPlan(plan)).toContain("Agent runs: 3");
     expect(formatRunPlan(plan)).toContain("Default models: gpt-5.5, sonnet");
+    expect(plan.warnings).toContain(
+      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
+    );
   });
 
   it("reports warnings, truncates long lists, and falls back to all models without defaults", () => {
@@ -56,6 +59,7 @@ describe("run plan", () => {
       "model-6",
     ]);
     expect(plan.warnings).toEqual([
+      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
       "Benchmark 'benchmark-1' configures 2 attempts; this run command currently executes one agent run per benchmark/model.",
     ]);
     expect(output).toContain(

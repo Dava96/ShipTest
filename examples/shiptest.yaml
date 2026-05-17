@@ -123,6 +123,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/reporting/html-report.test.ts
 
+  - id: surface-prepared-baseline-normalization-warning
+    type: implementation
+    base_commit: e1d061d
+    task: tasks/surface-prepared-baseline-normalization-warning.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md

@@ -23,6 +23,11 @@ export function createRunPlan(options: {
   const modelById = new Map(options.config.models.map((model) => [model.id, model]));
   const items: RunPlanItem[] = [];
   const warnings: string[] = [];
+  if (options.config.shiptest_runner.prepared_baseline.cache) {
+    warnings.push(
+      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
+    );
+  }
   for (const benchmark of options.config.benchmarks) {
     if (benchmarkFilter.size > 0 && !benchmarkFilter.has(benchmark.id)) {
       continue;
