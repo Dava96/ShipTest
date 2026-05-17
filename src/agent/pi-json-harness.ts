@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-
 import { createSnapshotManifest } from "../snapshot/manifest.js";
 import { extractSubmission } from "../submission/extract.js";
 import { pathExists } from "../utils/filesystem.js";
@@ -9,6 +8,7 @@ import {
   prepareCopiedWorkspace,
   prepareResettableGitWorkspace,
 } from "../workspace/resettable-workspace.js";
+import { resolvePiCommand } from "./pi-command.js";
 import {
   createEmptyAgentTelemetry,
   parsePiJsonLineIntoTelemetry,
@@ -60,6 +60,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
   artifacts.pi_events = piEventsPath;
   artifacts.pi_stderr = stderrPath;
 
+  const piCommand = resolvePiCommand(options.piExecutable, options.piExecutableArgs);
   const processStartedAt = Date.now();
   const runResult = await runPiProcess({
     cwd: options.agentWorkspacePath,
@@ -67,8 +68,8 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     model: options.model,
     loadContextFiles: options.benchmark.agent_context.load_context_files,
     limits: options.limits,
-    piExecutable: options.piExecutable ?? "pi",
-    piExecutableArgs: options.piExecutableArgs ?? [],
+    piExecutable: piCommand.executable,
+    piExecutableArgs: piCommand.args,
     piEventsPath,
     stderrPath,
   });

@@ -108,8 +108,10 @@ async function createFixture(options: { readonly failingPi?: boolean } = {}): Pr
   await writeFile(
     fakePiPath,
     options.failingPi
-      ? `process.stderr.write("boom\\n"); process.exit(3);\n`
-      : `const fs = require("node:fs");
+      ? `if (process.argv.includes("--list-models")) { console.log("provider      model"); console.log("openai-codex  fake"); process.exit(0); }
+process.stderr.write("boom\\n"); process.exit(3);\n`
+      : `if (process.argv.includes("--list-models")) { console.log("provider      model"); console.log("openai-codex  fake"); process.exit(0); }
+const fs = require("node:fs");
 fs.mkdirSync("src", { recursive: true });
 fs.writeFileSync("src/generated.txt", "generated\\n");
 console.log(JSON.stringify({ type: "agent_start" }));

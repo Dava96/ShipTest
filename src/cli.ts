@@ -11,6 +11,10 @@ import { loadShiptestConfigContext } from "./config/load-config.js";
 import type { ResolvedShiptestConfig } from "./config/schema.js";
 import { runDoctor } from "./doctor/run-doctor.js";
 import { runCleanRoomEvaluation } from "./evaluation/clean-room-evaluator.js";
+import {
+  checkPiModelAvailability,
+  formatMissingPiModelsMessage,
+} from "./run/model-availability.js";
 import { createRunPlan, formatRunPlan } from "./run/plan.js";
 import { regenerateReport, runShiptest } from "./run/run.js";
 import { createSnapshotManifest } from "./snapshot/manifest.js";
@@ -49,12 +53,25 @@ program
       const benchmarkIds = parseListOption(options.benchmark);
       const modelIds = parseListOption(options.model);
       const plan = createRunPlan({ config: context.config, benchmarkIds, modelIds });
+      const piExecutableArgs = parseJsonStringArrayOption(options.piArgs, "--pi-args");
+      const modelAvailabilityWarning = await getModelAvailabilityWarning({
+        models: uniqueModels(plan.items.map((item) => item.model)),
+        piExecutable: options.pi,
+        piExecutableArgs,
+      });
+
       if (!options.json) {
         console.log(formatRunPlan(plan));
         for (const warning of plan.warnings) {
           console.log(`⚠ ${warning}`);
         }
+        if (modelAvailabilityWarning) {
+          console.log(`⚠ ${modelAvailabilityWarning}`);
+        }
+      } else if (modelAvailabilityWarning) {
+        console.error(modelAvailabilityWarning);
       }
+
       if (!options.yes && !options.json) {
         const confirmed = await confirmPrompt("Proceed? [y/N] ");
         if (!confirmed) {
@@ -69,7 +86,7 @@ program
         ...(modelIds ? { modelIds } : {}),
         ...(options.output ? { runRootPath: path.resolve(options.output) } : {}),
         piExecutable: options.pi,
-        piExecutableArgs: parseJsonStringArrayOption(options.piArgs, "--pi-args"),
+        piExecutableArgs,
         ...(options.json
           ? {}
           : {
@@ -414,6 +431,29 @@ function selectModel(
   return model;
 }
 
+async function getModelAvailabilityWarning(options: {
+  readonly models: readonly ResolvedShiptestConfig["models"][number][];
+  readonly piExecutable: string;
+  readonly piExecutableArgs: readonly string[];
+}): Promise<string | undefined> {
+  try {
+    const result = await checkPiModelAvailability(options);
+    return result.ok ? undefined : formatMissingPiModelsMessage(result);
+  } catch (error) {
+    return `Could not verify configured models with \`pi --list-models\`: ${formatError(error)}`;
+  }
+}
+
+function uniqueModels(
+  models: readonly ResolvedShiptestConfig["models"][number][],
+): readonly ResolvedShiptestConfig["models"][number][] {
+  const byId = new Map<string, ResolvedShiptestConfig["models"][number]>();
+  for (const model of models) {
+    byId.set(model.id, model);
+  }
+  return [...byId.values()];
+}
+
 function parseListOption(values: readonly string[] | undefined): string[] | undefined {
   if (!values || values.length === 0) {
     return undefined;
@@ -443,6 +483,10 @@ function parseJsonStringArrayOption(value: string | undefined, optionName: strin
     throw new Error(`${optionName} must be a JSON array of strings.`);
   }
   return parsed;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parsePatchChangedFiles(patch: string): string[] {
