@@ -27,6 +27,8 @@ export interface SnapshotManifest {
   readonly manifest_sha256: string;
 }
 
+export type SnapshotSource = "git_commit" | "working_tree";
+
 export interface BuildSnapshotOptions {
   readonly source_repo_path: string;
   readonly base_commit?: string;
@@ -35,6 +37,7 @@ export interface BuildSnapshotOptions {
   readonly snapshot: ResolvedShiptestConfig["snapshot"];
   readonly agent_context: ResolvedShiptestConfig["benchmarks"][number]["agent_context"];
   readonly evaluation: ResolvedShiptestConfig["benchmarks"][number]["evaluation"];
+  readonly source?: SnapshotSource;
 }
 
 export type SnapshotBuildResult = SnapshotBuildSuccess | SnapshotBuildFailure;

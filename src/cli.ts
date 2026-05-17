@@ -8,9 +8,11 @@ import { Command } from "commander";
 import { runPiJsonAgentAttempt } from "./agent/pi-json-harness.js";
 import { ShiptestConfigError } from "./config/errors.js";
 import { loadShiptestConfigContext } from "./config/load-config.js";
+import { resolveConfigRelativePath } from "./config/paths.js";
 import type { ResolvedShiptestConfig } from "./config/schema.js";
 import { runDoctor } from "./doctor/run-doctor.js";
 import { runCleanRoomEvaluation } from "./evaluation/clean-room-evaluator.js";
+import { formatDirtyStateError, getGitDirtyState } from "./run/git-state.js";
 import {
   checkPiModelAvailability,
   formatMissingPiModelsMessage,
@@ -37,11 +39,13 @@ program
   .option("--pi <path>", "Pi executable", "pi")
   .option("--pi-args <json>", "JSON array of arguments to pass before ShipTest Pi arguments")
   .option("--yes", "Run without confirmation")
+  .option("--draft", "Run against local working-tree state and mark results non-reproducible")
   .option("--json", "Print machine-readable JSON")
   .action(
     async (options: {
       readonly benchmark?: string[];
       readonly config?: string;
+      readonly draft?: boolean;
       readonly json?: boolean;
       readonly model?: string[];
       readonly output?: string;
@@ -54,6 +58,16 @@ program
       const modelIds = parseListOption(options.model);
       const plan = createRunPlan({ config: context.config, benchmarkIds, modelIds });
       const piExecutableArgs = parseJsonStringArrayOption(options.piArgs, "--pi-args");
+      if (!options.draft) {
+        const projectRootPath = resolveConfigRelativePath(
+          context.configDir,
+          context.config.project.repo,
+        );
+        const dirtyState = await getGitDirtyState(projectRootPath);
+        if (!dirtyState.clean) {
+          throw new Error(formatDirtyStateError(dirtyState));
+        }
+      }
       const modelAvailabilityWarning = await getModelAvailabilityWarning({
         models: uniqueModels(plan.items.map((item) => item.model)),
         piExecutable: options.pi,
@@ -85,6 +99,7 @@ program
         ...(benchmarkIds ? { benchmarkIds } : {}),
         ...(modelIds ? { modelIds } : {}),
         ...(options.output ? { runRootPath: path.resolve(options.output) } : {}),
+        draft: options.draft ?? false,
         piExecutable: options.pi,
         piExecutableArgs,
         ...(options.json

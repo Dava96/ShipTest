@@ -64,6 +64,7 @@ code { background: #f4f6f7; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
 <h1>ShipTest report</h1>
 <p><strong>Run:</strong> <code>${escapeHtml(results.run_id)}</code></p>
 <p><strong>Status:</strong> ${escapeHtml(results.status)}</p>
+<p><strong>Run mode:</strong> ${formatRunMode(results)}</p>
 <div class="summary">
   <div class="card"><strong>Benchmarks</strong><br>${results.summary.benchmarks}</div>
   <div class="card"><strong>Agent runs</strong><br>${results.summary.agent_runs}</div>
@@ -91,6 +92,13 @@ ${rows}
 </body>
 </html>
 `;
+}
+
+function formatRunMode(results: RunResults): string {
+  if (results.run_mode === "draft") {
+    return "Draft / working tree — non-reproducible local files may be included";
+  }
+  return "Reproducible / git commit";
 }
 
 function renderBenchmarkRows(results: RunResults): string {

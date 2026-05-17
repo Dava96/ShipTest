@@ -110,6 +110,60 @@ describe("buildSnapshot", () => {
     ).toThrow("Unknown benchmark id: missing");
   });
 
+  it("uses working-tree files and content hashes when requested", async () => {
+    const fixture = await createGitRepoFixture();
+    await writeFile(
+      path.join(fixture.repoPath, "src", "index.ts"),
+      "export const value = 2;\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(fixture.repoPath, "src", "local-only.ts"),
+      "export const local = true;\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(fixture.repoPath, "src", "deleted.txt"),
+      "tracked then deleted\n",
+      "utf8",
+    );
+    await git(["add", "src/deleted.txt"], fixture.repoPath);
+    await git(["commit", "-m", "add deleted fixture"], fixture.repoPath);
+    await git(["rm", "src/deleted.txt"], fixture.repoPath);
+
+    const first = await buildSnapshot({ ...baseSnapshotOptions(fixture), source: "working_tree" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      throw new Error("expected first snapshot build to succeed");
+    }
+    expect(first.manifest.source_tree).toBe("working_tree");
+    expect(first.manifest.files.map((file) => file.repository_path)).toContain("src/local-only.ts");
+    expect(first.manifest.files.map((file) => file.repository_path)).not.toContain(
+      "src/deleted.txt",
+    );
+
+    const firstIndex = first.manifest.files.find((file) => file.repository_path === "src/index.ts");
+    await writeFile(
+      path.join(fixture.repoPath, "src", "index.ts"),
+      "export const value = 3;\n",
+      "utf8",
+    );
+    const second = await buildSnapshot({
+      ...baseSnapshotOptions(fixture),
+      output_root_path: path.join(path.dirname(fixture.outputRootPath), "snapshot-output-2"),
+      source: "working_tree",
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+      throw new Error("expected second snapshot build to succeed");
+    }
+    const secondIndex = second.manifest.files.find(
+      (file) => file.repository_path === "src/index.ts",
+    );
+    expect(secondIndex?.sha256).not.toBe(firstIndex?.sha256);
+    expect(second.manifest.manifest_sha256).not.toBe(first.manifest.manifest_sha256);
+  });
+
   it("uses HEAD when no base commit is provided", async () => {
     const fixture = await createGitRepoFixture();
     const { base_commit: _baseCommit, ...options } = baseSnapshotOptions(fixture);
