@@ -8,6 +8,7 @@ import { runDoctor } from "../doctor/run-doctor.js";
 import { runCleanRoomEvaluation } from "../evaluation/clean-room-evaluator.js";
 import { writeHtmlReport } from "../reporting/html-report.js";
 import { writeRunEvent } from "./events.js";
+import { formatDirtyStateError, getGitDirtyState } from "./git-state.js";
 import { createRunPlan } from "./plan.js";
 import { createAttemptLayout, createRunLayout, toRunRelativePath } from "./run-layout.js";
 import type {
@@ -21,6 +22,15 @@ import type {
 export async function runShiptest(options: ShiptestRunOptions): Promise<RunResults> {
   const context = await loadShiptestConfigContext(options.configPath);
   const projectRootPath = resolveConfigRelativePath(context.configDir, context.config.project.repo);
+  const runMode = options.draft ? "draft" : "reproducible";
+  const snapshotSource = options.draft ? "working_tree" : "git_commit";
+  if (!options.draft) {
+    const dirtyState = await getGitDirtyState(projectRootPath);
+    if (!dirtyState.clean) {
+      throw new Error(formatDirtyStateError(dirtyState));
+    }
+  }
+
   const layout = await createRunLayout({ projectRootPath, runRootPath: options.runRootPath });
   const plan = createRunPlan({
     config: context.config,
@@ -51,6 +61,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       outputRootPath: layout.doctorOutputPath,
       cacheRootPath: layout.cacheRootPath,
       benchmarkId,
+      snapshotSource,
       onProgress: (event) => {
         if (event.phase === "cache") {
           options.onProgress?.(`[${benchmarkId}] ${event.message}`);
@@ -175,6 +186,8 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
     runId: layout.runId,
     createdAt: startedAt,
     projectName: context.config.project.name,
+    runMode,
+    snapshotSource,
     runRootPath: layout.runRootPath,
     reportPath: layout.reportPath,
     eventsPath: layout.eventsPath,
@@ -327,6 +340,8 @@ function createRunResults(options: {
   readonly runId: string;
   readonly createdAt: string;
   readonly projectName: string;
+  readonly runMode: RunResults["run_mode"];
+  readonly snapshotSource: RunResults["snapshot_source"];
   readonly runRootPath: string;
   readonly reportPath: string;
   readonly eventsPath: string;
@@ -351,6 +366,8 @@ function createRunResults(options: {
     created_at: options.createdAt,
     status,
     project: { name: options.projectName },
+    run_mode: options.runMode,
+    snapshot_source: options.snapshotSource,
     summary: {
       benchmarks: byBenchmark.size,
       agent_runs: options.attempts.length,

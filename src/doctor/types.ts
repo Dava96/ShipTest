@@ -3,7 +3,7 @@ import type {
   PreparedBaselineMetadata,
   PreparedBaselineTimings,
 } from "../baseline/prepared-baseline.js";
-import type { SnapshotCheck, SnapshotManifest } from "../snapshot/types.js";
+import type { SnapshotCheck, SnapshotManifest, SnapshotSource } from "../snapshot/types.js";
 import type { DoctorCheck } from "./check-codes.js";
 
 export const DoctorDefaults = {
@@ -36,6 +36,7 @@ export interface DoctorOptions {
   readonly noCache?: boolean;
   readonly shiptestVersion?: string;
   readonly commandOutputMaxBytes?: number;
+  readonly snapshotSource?: SnapshotSource;
   readonly onProgress?: (event: DoctorProgressEvent) => void;
 }
 

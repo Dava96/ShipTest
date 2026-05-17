@@ -114,7 +114,9 @@ async function runBenchmarkDoctor(
 
   emitProgress(options, benchmarkId, "snapshot", "Building sanitized snapshot.");
   const snapshotResult = await measureTiming(timings, "snapshot_ms", () =>
-    buildSnapshotSafely(createBuildSnapshotOptions(context, benchmarkId, snapshotOutputPath)),
+    buildSnapshotSafely(
+      createBuildSnapshotOptions(context, benchmarkId, snapshotOutputPath, options.snapshotSource),
+    ),
   );
   checks.push(...snapshotResult.checks);
   if (!snapshotResult.ok) {
@@ -373,6 +375,7 @@ function createBuildSnapshotOptions(
   context: ShiptestConfigContext,
   benchmarkId: string,
   outputRootPath: string,
+  snapshotSource: BuildSnapshotOptions["source"] = "git_commit",
 ): BuildSnapshotOptions {
   const benchmark = context.config.benchmarks.find((candidate) => candidate.id === benchmarkId);
   if (!benchmark) {
@@ -381,12 +384,15 @@ function createBuildSnapshotOptions(
 
   return {
     source_repo_path: resolveConfigRelativePath(context.configDir, context.config.project.repo),
-    ...(benchmark.base_commit ? { base_commit: benchmark.base_commit } : {}),
+    ...(snapshotSource === "git_commit" && benchmark.base_commit
+      ? { base_commit: benchmark.base_commit }
+      : {}),
     output_root_path: path.resolve(outputRootPath),
     shiptest_config_dir: context.configDir,
     snapshot: context.config.snapshot,
     agent_context: benchmark.agent_context,
     evaluation: benchmark.evaluation,
+    source: snapshotSource,
   };
 }
 

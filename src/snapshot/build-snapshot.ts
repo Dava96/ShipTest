@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { SnapshotStrategy } from "../config/schema-values.js";
@@ -45,9 +45,14 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
   await rm(options.output_root_path, { force: true, recursive: true });
   await mkdir(options.output_root_path, { recursive: true });
 
-  const ref = options.base_commit ?? "HEAD";
-  await git(["clone", "--no-checkout", options.source_repo_path, stagingCheckoutPath]);
-  await git(["checkout", "--detach", ref], stagingCheckoutPath);
+  const snapshotSource = options.source ?? "git_commit";
+  if (snapshotSource === "working_tree") {
+    await copyGitWorkingTree(options.source_repo_path, stagingCheckoutPath);
+  } else {
+    const ref = options.base_commit ?? "HEAD";
+    await git(["clone", "--no-checkout", options.source_repo_path, stagingCheckoutPath]);
+    await git(["checkout", "--detach", ref], stagingCheckoutPath);
+  }
 
   checks.push(
     ...(await handleSubmodules(stagingCheckoutPath, options.snapshot.submodule_handling)),
@@ -75,8 +80,14 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
     })),
   );
 
-  const sourceCommit = await resolveCommit(stagingCheckoutPath, "HEAD");
-  const sourceTree = await resolveTree(stagingCheckoutPath, "HEAD");
+  const sourceCommit =
+    snapshotSource === "working_tree"
+      ? await resolveCommit(options.source_repo_path, "HEAD")
+      : await resolveCommit(stagingCheckoutPath, "HEAD");
+  const sourceTree =
+    snapshotSource === "working_tree"
+      ? "working_tree"
+      : await resolveTree(stagingCheckoutPath, "HEAD");
   const hasErrors = checks.some((check) => check.severity === SnapshotCheckSeverity.Error);
 
   if (hasErrors) {
@@ -99,4 +110,30 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
     }),
     checks,
   };
+}
+
+async function copyGitWorkingTree(sourceRepoPath: string, destinationPath: string): Promise<void> {
+  await mkdir(destinationPath, { recursive: true });
+  const result = await git(
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    sourceRepoPath,
+  );
+  const files = result.stdout.split("\0").filter(Boolean);
+  for (const file of files) {
+    const sourcePath = path.join(sourceRepoPath, file);
+    try {
+      const sourceStat = await stat(sourcePath);
+      if (!sourceStat.isFile() && !sourceStat.isSymbolicLink()) {
+        continue;
+      }
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    const destinationFilePath = path.join(destinationPath, file);
+    await mkdir(path.dirname(destinationFilePath), { recursive: true });
+    await cp(sourcePath, destinationFilePath, { verbatimSymlinks: true });
+  }
 }

@@ -123,6 +123,14 @@ benchmarks:
     task: tasks/surface-prepared-baseline-normalization-warning.md
     attempts: 1
 
+  - id: add-draft-working-tree-run-mode
+    type: implementation
+    base_commit: 4dc3a0d
+    task: tasks/add-draft-working-tree-run-mode.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/draft-mode.test.ts src/run/run.test.ts src/snapshot/snapshot.test.ts src/reporting/html-report.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md

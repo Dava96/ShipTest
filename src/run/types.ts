@@ -3,6 +3,8 @@ import type { ResolvedShiptestConfig } from "../config/schema.js";
 import type { CleanRoomEvaluationResult } from "../evaluation/types.js";
 
 export type RunStatus = "completed" | "completed_with_issues" | "failed_to_start";
+export type RunMode = "reproducible" | "draft";
+export type SnapshotSource = "git_commit" | "working_tree";
 export type AttemptStatus =
   | "completed"
   | "completed_with_issues"
@@ -27,6 +29,7 @@ export interface ShiptestRunOptions {
   readonly runRootPath?: string | undefined;
   readonly piExecutable?: string | undefined;
   readonly piExecutableArgs?: readonly string[];
+  readonly draft?: boolean;
   readonly onProgress?: (message: string) => void;
 }
 
@@ -82,6 +85,8 @@ export interface RunResults {
   readonly project: {
     readonly name: string;
   };
+  readonly run_mode: RunMode;
+  readonly snapshot_source: SnapshotSource;
   readonly summary: {
     readonly benchmarks: number;
     readonly agent_runs: number;
