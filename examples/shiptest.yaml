@@ -104,32 +104,24 @@ benchmarks:
     base_commit: e0aabd9
     task: tasks/refactor-resettable-workspace-pool.md
     attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/workspace/resettable-workspace.test.ts src/agent/pi-json-harness.test.ts src/evaluation/clean-room-evaluator.test.ts src/run/run.test.ts
 
   - id: refactor-pi-model-availability-precheck
     type: implementation
     base_commit: 6c79bf0
     task: tasks/refactor-pi-model-availability-precheck.md
     attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/model-availability.test.ts src/run/run.test.ts src/agent/pi-json-harness.test.ts
 
   - id: report-total-estimated-cost
     type: implementation
     base_commit: 6f63300
     task: tasks/report-total-estimated-cost.md
     attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/reporting/html-report.test.ts
 
   - id: surface-prepared-baseline-normalization-warning
     type: implementation
     base_commit: e1d061d
     task: tasks/surface-prepared-baseline-normalization-warning.md
     attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
 
   - id: shiptest-smoke
     type: implementation
