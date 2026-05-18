@@ -39,6 +39,7 @@ function renderReport(results: RunResults, attempts: readonly AttemptReport[]): 
 <td>${formatDuration(attempt.timings_ms?.agent_workspace_prepare_ms)}</td>
 <td>${formatDuration(attempt.timings_ms?.evaluation_workspace_prepare_ms)}</td>
 <td>${formatDuration(attempt.timings_ms?.evaluation_scoring_ms)}</td>
+<td>${renderToolUsageCell(attempt)}</td>
 <td>${artifactLink(attempt.artifacts.candidate_patch, "patch")}</td>
 <td>${artifactLink(attempt.artifacts.attempt_json, "json")}</td>
 </tr>`,
@@ -84,7 +85,7 @@ ${renderBenchmarkRows(results)}
 </table>
 <h2>Attempts</h2>
 <table>
-<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Tokens</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Patch</th><th>Attempt</th></tr></thead>
+<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Tokens</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -99,6 +100,20 @@ function formatRunMode(results: RunResults): string {
     return "Draft / working tree — non-reproducible local files may be included";
   }
   return "Reproducible / git commit";
+}
+
+function renderToolUsageCell(attempt: AttemptReport): string {
+  const usage = attempt.tool_usage;
+  if (!usage) {
+    return "";
+  }
+  const categoryText =
+    usage.categories.length > 0
+      ? usage.categories.map((category) => `${category.label}: ${category.status}`).join("; ")
+      : "No highlighted categories configured";
+  return escapeHtml(
+    `Tool calls: ${usage.summary.tool_calls}; Failed: ${usage.summary.failed_tool_calls}; ${categoryText}`,
+  );
 }
 
 function renderBenchmarkRows(results: RunResults): string {

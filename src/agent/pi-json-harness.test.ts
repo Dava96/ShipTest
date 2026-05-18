@@ -31,8 +31,8 @@ fs.writeFileSync("src/agent-output.txt", process.argv.at(-1));
 console.log(JSON.stringify({ type: "session", version: 3, id: "fake-session", cwd: process.cwd() }));
 console.log(JSON.stringify({ type: "agent_start" }));
 console.log(JSON.stringify({ type: "turn_start" }));
-console.log(JSON.stringify({ type: "tool_execution_start", toolName: "write" }));
-console.log(JSON.stringify({ type: "tool_execution_end", toolName: "write", isError: false }));
+console.log(JSON.stringify({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "npm run test:run" } }));
+console.log(JSON.stringify({ type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result: { content: [{ type: "text", text: "secret output" }] }, isError: true }));
 console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }], usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { total: 0.01 } } } }));
 console.log(JSON.stringify({ type: "agent_end", messages: [] }));
 `,
@@ -54,9 +54,21 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     expect(result.status).toBe("completed");
     expect(result.ok).toBe(true);
     expect(result.telemetry.session).toMatchObject({ id: "fake-session" });
-    expect(result.telemetry.tools.write).toEqual({ calls: 1, failures: 0 });
+    expect(result.telemetry.tools.bash).toEqual({ calls: 1, failures: 1 });
     expect(result.telemetry.usage.total_tokens).toBe(3);
     expect(result.submission?.changed_files).toEqual(["src/agent-output.txt"]);
+    expect(result.tool_usage).toMatchObject({
+      summary: { tool_calls: 1, failed_tool_calls: 1 },
+      categories: [],
+    });
+    expect(result.artifacts.pi_events).toBeUndefined();
+    expect(result.artifacts.tool_calls).toBeDefined();
+    await expect(readFile(result.artifacts.tool_calls as string, "utf8")).resolves.toContain(
+      "Tool output omitted by tool_usage policy.",
+    );
+    await expect(readFile(result.artifacts.tool_calls as string, "utf8")).resolves.not.toContain(
+      "secret output",
+    );
     expect(result.artifacts.prompt).toBeDefined();
     expect(result.artifacts.candidate_patch).toBeDefined();
     await expect(readFile(result.artifacts.prompt as string, "utf8")).resolves.toBe(
@@ -64,6 +76,69 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     );
     await expect(readFile(result.artifacts.candidate_patch as string, "utf8")).resolves.toContain(
       "agent-output.txt",
+    );
+  });
+
+  it("applies tool usage highlights and optional raw event/excerpt capture", async () => {
+    const fixture = await createFixture();
+    const fakePi = await createFakePi(
+      fixture.root,
+      `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "agent_start" }));
+console.log(JSON.stringify({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "npm run typecheck" } }));
+console.log(JSON.stringify({ type: "tool_execution_update", toolCallId: "call-1", toolName: "bash", partialResult: { content: [{ type: "text", text: "typecheck failed output" }] } }));
+console.log(JSON.stringify({ type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result: { content: [{ type: "text", text: " final error" }] }, isError: true }));
+console.log(JSON.stringify({ type: "agent_end", messages: [] }));
+`,
+    );
+
+    const result = await runPiJsonAgentAttempt({
+      preparedBaselinePath: fixture.preparedBaselinePath,
+      agentWorkspacePath: path.join(fixture.root, "agent-workspace-tool-usage"),
+      configDir: fixture.configDir,
+      benchmark: fixture.benchmark,
+      model: fixture.model,
+      limits: fixture.limits,
+      artifactsDir: path.join(fixture.root, "artifacts-tool-usage"),
+      piExecutable: fakePi.executable,
+      piExecutableArgs: fakePi.args,
+      overwrite: true,
+      toolUsage: {
+        record_tool_calls: true,
+        tool_output: "excerpts",
+        tool_output_excerpt_bytes: 1024,
+        record_raw_events: true,
+        final_response: "capped",
+        final_response_max_bytes: 8192,
+        stderr_max_bytes: 65536,
+        categories: [
+          {
+            id: "verification",
+            label: "Verification",
+            highlights: [
+              {
+                id: "typecheck",
+                label: "Typecheck",
+                match: { tool: "bash", command_contains: "npm run typecheck" },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.tool_usage?.categories).toEqual([
+      expect.objectContaining({
+        id: "verification",
+        status: "failed",
+        summary: { matched_tool_calls: 1, failed_tool_calls: 1 },
+      }),
+    ]);
+    await expect(readFile(result.artifacts.tool_calls as string, "utf8")).resolves.toContain(
+      "typecheck failed output",
+    );
+    await expect(readFile(result.artifacts.pi_events as string, "utf8")).resolves.toContain(
+      "tool_execution_start",
     );
   });
 

@@ -72,25 +72,36 @@ export function parsePiJsonLines(
 
 export function parsePiJsonLineIntoTelemetry(telemetry: AgentTelemetry, line: string): void {
   const mutable = telemetry as MutableTelemetry;
+  const parsed = parsePiJsonLine(line);
+  if (parsed === "empty") {
+    return;
+  }
+  if (parsed === "malformed") {
+    mutable.counts.malformed_events += 1;
+    return;
+  }
+
+  mutable.counts.events += 1;
+  if (!parsed) {
+    return;
+  }
+  dispatchPiEvent(mutable, parsed);
+}
+
+export function parsePiJsonLine(line: string): PiJsonEvent | undefined | "empty" | "malformed" {
   const trimmed = line.trim();
   if (!trimmed) {
-    return;
+    return "empty";
   }
 
   let rawEvent: Record<string, unknown>;
   try {
     rawEvent = JSON.parse(trimmed) as Record<string, unknown>;
   } catch {
-    mutable.counts.malformed_events += 1;
-    return;
+    return "malformed";
   }
 
-  mutable.counts.events += 1;
-  const event = toPiJsonEvent(rawEvent);
-  if (!event) {
-    return;
-  }
-  dispatchPiEvent(mutable, event);
+  return toPiJsonEvent(rawEvent);
 }
 
 const piEventHandlers: PiEventHandlerMap = {
@@ -127,6 +138,9 @@ const piEventHandlers: PiEventHandlerMap = {
   },
   tool_execution_start: (telemetry, event) => {
     addToolCall(telemetry, stringValue(event.toolName) ?? "unknown");
+  },
+  tool_execution_update: () => {
+    // Updates are consumed by tool-usage recording; telemetry counts completed calls/failures.
   },
   tool_execution_end: (telemetry, event) => {
     if (event.isError === true) {

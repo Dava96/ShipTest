@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createSnapshotManifest } from "../snapshot/manifest.js";
@@ -11,9 +12,11 @@ import {
 import { resolvePiCommand } from "./pi-command.js";
 import {
   createEmptyAgentTelemetry,
+  parsePiJsonLine,
   parsePiJsonLineIntoTelemetry,
   telemetryHasContextExhaustion,
 } from "./pi-events.js";
+import { ToolUsageRecorder } from "./tool-usage.js";
 import type {
   AgentHarness,
   AgentRunOptions,
@@ -55,9 +58,12 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     sourceTree: "manual",
   });
 
+  const toolUsageConfig = options.toolUsage ?? defaultToolUsageConfig();
   const piEventsPath = path.join(options.artifactsDir, "pi-events.jsonl");
   const stderrPath = path.join(options.artifactsDir, "pi.stderr.txt");
-  artifacts.pi_events = piEventsPath;
+  if (toolUsageConfig.record_raw_events) {
+    artifacts.pi_events = piEventsPath;
+  }
   artifacts.pi_stderr = stderrPath;
 
   const piCommand = resolvePiCommand(options.piExecutable, options.piExecutableArgs);
@@ -72,11 +78,15 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     piExecutableArgs: piCommand.args,
     piEventsPath,
     stderrPath,
+    toolUsage: toolUsageConfig,
   });
   const processMs = Date.now() - processStartedAt;
 
   signals.push(...runResult.signals);
   const telemetry = runResult.telemetry;
+  if (runResult.tool_usage?.artifacts.tool_calls_jsonl) {
+    artifacts.tool_calls = runResult.tool_usage.artifacts.tool_calls_jsonl;
+  }
   const statusFromProcess = runResult.status;
 
   await writeArtifact(
@@ -86,13 +96,13 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     "telemetry.json",
     `${JSON.stringify(telemetry, null, 2)}\n`,
   );
-  if (telemetry.final_response) {
+  if (telemetry.final_response && toolUsageConfig.final_response !== "none") {
     await writeArtifact(
       options.artifactsDir,
       artifacts,
       "final_response",
       "final-response.md",
-      telemetry.final_response,
+      capText(telemetry.final_response, toolUsageConfig.final_response_max_bytes),
     );
   }
 
@@ -114,6 +124,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
       status: "extraction_failed",
       signals,
       telemetry,
+      ...(runResult.tool_usage ? { tool_usage: runResult.tool_usage } : {}),
       agent_workspace_path: options.agentWorkspacePath,
       timings_ms: createAgentTimings(
         startedAt,
@@ -151,6 +162,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     status: statusFromProcess,
     signals,
     telemetry,
+    ...(runResult.tool_usage ? { tool_usage: runResult.tool_usage } : {}),
     submission: extraction.submission,
     agent_workspace_path: options.agentWorkspacePath,
     timings_ms: createAgentTimings(
@@ -192,7 +204,8 @@ async function runPiProcess(options: {
   readonly piExecutableArgs: readonly string[];
   readonly piEventsPath: string;
   readonly stderrPath: string;
-}): Promise<Pick<AgentRunResult, "status" | "signals" | "telemetry">> {
+  readonly toolUsage: NonNullable<AgentRunOptions["toolUsage"]>;
+}): Promise<Pick<AgentRunResult, "status" | "signals" | "telemetry" | "tool_usage">> {
   const signals: AgentSignal[] = [];
   const telemetry = createEmptyAgentTelemetry();
   const args = [
@@ -202,6 +215,10 @@ async function runPiProcess(options: {
   const startedAt = Date.now();
   let status: AgentRunResult["status"] = "completed";
   let stoppedForBudget = false;
+  const toolUsageRecorder = await ToolUsageRecorder.create({
+    config: options.toolUsage,
+    artifactsDir: path.dirname(options.stderrPath),
+  });
 
   const child = spawn(options.piExecutable, args, {
     cwd: options.cwd,
@@ -213,8 +230,11 @@ async function runPiProcess(options: {
     },
   });
 
-  const stdoutChunks: Buffer[] = [];
-  const stderrChunks: Buffer[] = [];
+  await mkdir(path.dirname(options.stderrPath), { recursive: true });
+  const rawEventsStream = options.toolUsage.record_raw_events
+    ? createWriteStream(options.piEventsPath, { flags: "w", encoding: "utf8" })
+    : undefined;
+  let stderrTail = "";
   let pendingStdout = "";
 
   const stopForBudget = (signal: AgentSignal, nextStatus: AgentRunResult["status"]): void => {
@@ -239,17 +259,24 @@ async function runPiProcess(options: {
   }, options.limits.max_attempt_mins * 60_000);
 
   child.stdout.on("data", (chunk: Buffer) => {
-    stdoutChunks.push(chunk);
     pendingStdout += chunk.toString("utf8");
     const lines = pendingStdout.split("\n");
     pendingStdout = lines.pop() ?? "";
     for (const line of lines) {
+      if (rawEventsStream) {
+        rawEventsStream.write(`${line}\n`);
+      }
       parsePiJsonLineIntoTelemetry(telemetry, line);
+      const event = parsePiJsonLine(line);
+      if (event && event !== "empty" && event !== "malformed") {
+        toolUsageRecorder.handlePiEvent(event);
+      }
       enforceEventBudgets(telemetry, options.limits, stopForBudget);
     }
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    stderrChunks.push(chunk);
+    const text = chunk.toString("utf8");
+    stderrTail = capTail(`${stderrTail}${text}`, options.toolUsage.stderr_max_bytes);
   });
 
   const exitCode = await new Promise<number | null>((resolve, reject) => {
@@ -266,15 +293,21 @@ async function runPiProcess(options: {
   clearTimeout(attemptTimer);
 
   if (pendingStdout.trim()) {
+    if (rawEventsStream) {
+      rawEventsStream.write(`${pendingStdout}\n`);
+    }
     parsePiJsonLineIntoTelemetry(telemetry, pendingStdout);
+    const event = parsePiJsonLine(pendingStdout);
+    if (event && event !== "empty" && event !== "malformed") {
+      toolUsageRecorder.handlePiEvent(event);
+    }
     enforceEventBudgets(telemetry, options.limits, stopForBudget);
   }
+  await closeStream(rawEventsStream);
+  await writeFile(options.stderrPath, stderrTail, "utf8");
+  const toolUsage = await toolUsageRecorder.finish();
   (telemetry.lifecycle as { process_exit_code: number | null }).process_exit_code = exitCode;
-  const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-  const stderr = Buffer.concat(stderrChunks).toString("utf8");
-  await mkdir(path.dirname(options.piEventsPath), { recursive: true });
-  await writeFile(options.piEventsPath, stdout, "utf8");
-  await writeFile(options.stderrPath, stderr, "utf8");
+  const stderr = stderrTail;
 
   if (status === "completed" && telemetryHasContextExhaustion(telemetry, stderr)) {
     status = "context_exhausted";
@@ -302,7 +335,50 @@ async function runPiProcess(options: {
     });
   }
 
-  return { status, signals, telemetry };
+  return { status, signals, telemetry, tool_usage: toolUsage };
+}
+
+async function closeStream(
+  stream: ReturnType<typeof createWriteStream> | undefined,
+): Promise<void> {
+  if (!stream) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    stream.on("error", reject);
+    stream.end(resolve);
+  });
+}
+
+function capTail(value: string, maxBytes: number): string {
+  return capTextFromStart(value, maxBytes, true);
+}
+
+function capText(value: string, maxBytes: number): string {
+  return capTextFromStart(value, maxBytes, false);
+}
+
+function capTextFromStart(value: string, maxBytes: number, fromTail: boolean): string {
+  let text = value;
+  while (Buffer.byteLength(text, "utf8") > maxBytes) {
+    text = fromTail
+      ? text.slice(Math.max(1, Math.floor(text.length / 4)))
+      : text.slice(0, Math.floor(text.length * 0.75));
+  }
+  return text;
+}
+
+function defaultToolUsageConfig(): NonNullable<AgentRunOptions["toolUsage"]> {
+  return {
+    record_tool_calls: true,
+    tool_output: "none",
+    tool_output_excerpt_bytes: 8192,
+    record_raw_events: false,
+    final_response: "capped",
+    final_response_max_bytes: 8192,
+    stderr_max_bytes: 65536,
+    categories: [],
+  };
 }
 
 function enforceEventBudgets(

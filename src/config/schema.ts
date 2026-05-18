@@ -223,6 +223,48 @@ const PartialEvaluationSchema = z
     addHiddenPatchPolicyIssue(evaluation, context);
   });
 
+const ToolUsageHighlightMatchSchema = z
+  .object({
+    tool: nonEmptyString.optional(),
+    command_contains: nonEmptyString.optional(),
+    command_equals: nonEmptyString.optional(),
+  })
+  .strict()
+  .refine(
+    (match) => Boolean(match.tool || match.command_contains || match.command_equals),
+    "Tool usage highlight match must define tool, command_contains, or command_equals.",
+  );
+
+const ToolUsageHighlightSchema = z
+  .object({
+    id,
+    label: nonEmptyString,
+    match: ToolUsageHighlightMatchSchema,
+  })
+  .strict();
+
+const ToolUsageCategorySchema = z
+  .object({
+    id,
+    label: nonEmptyString,
+    highlights: z.array(ToolUsageHighlightSchema).default([]),
+  })
+  .strict();
+
+export const ToolUsageSchema = z
+  .object({
+    record_tool_calls: z.boolean().default(true),
+    tool_output: z.enum(["none", "excerpts"]).default("none"),
+    tool_output_excerpt_bytes: positiveInteger.default(8192),
+    record_raw_events: z.boolean().default(false),
+    final_response: z.enum(["none", "capped"]).default("capped"),
+    final_response_max_bytes: positiveInteger.default(8192),
+    stderr_max_bytes: positiveInteger.default(65536),
+    categories: z.array(ToolUsageCategorySchema).default([]),
+  })
+  .strict()
+  .prefault({});
+
 export const DefaultsSchema = z
   .object({
     run: z
@@ -265,6 +307,7 @@ const RawShiptestConfigSchema = z
     repository_environment: RepositoryEnvironmentSchema,
     snapshot: SnapshotSchema,
     shiptest_runner: ShiptestRunnerSchema,
+    tool_usage: ToolUsageSchema,
     defaults: DefaultsSchema,
     models: z.array(ModelSchema).min(1),
     benchmarks: z.array(BenchmarkInputSchema).min(1),

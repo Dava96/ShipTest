@@ -1,5 +1,6 @@
 import type { ResolvedShiptestConfig } from "../config/schema.js";
 import type { Submission } from "../submission/types.js";
+import type { ToolUsageSummary } from "./tool-usage.js";
 
 export type AgentAttemptStatus =
   | "completed"
@@ -89,6 +90,7 @@ export interface AgentRunOptions {
   readonly overwrite?: boolean;
   readonly piExecutable?: string;
   readonly piExecutableArgs?: readonly string[];
+  readonly toolUsage?: ResolvedShiptestConfig["tool_usage"];
 }
 
 export interface AgentRunResult {
@@ -96,6 +98,7 @@ export interface AgentRunResult {
   readonly status: AgentAttemptStatus;
   readonly signals: readonly AgentSignal[];
   readonly telemetry: AgentTelemetry;
+  readonly tool_usage?: ToolUsageSummary;
   readonly submission?: Submission;
   readonly agent_workspace_path: string;
   readonly timings_ms: {

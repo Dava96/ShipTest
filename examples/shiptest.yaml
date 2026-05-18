@@ -29,6 +29,33 @@ shiptest_runner:
     enabled: true
     cache: true
 
+tool_usage:
+  record_tool_calls: true
+  tool_output: none
+  record_raw_events: false
+  final_response: capped
+  final_response_max_bytes: 8192
+  stderr_max_bytes: 65536
+  categories:
+    - id: verification
+      label: Verification
+      highlights:
+        - id: typecheck
+          label: Typecheck
+          match:
+            tool: bash
+            command_contains: npm run typecheck
+        - id: tests
+          label: Tests
+          match:
+            tool: bash
+            command_contains: npm run test:run
+        - id: build
+          label: Build
+          match:
+            tool: bash
+            command_contains: npm run build
+
 models:
   - id: gpt-5.4-mini
     provider: openai-codex
@@ -130,6 +157,14 @@ benchmarks:
     attempts: 1
     evaluation:
       scoring_command: npm run test:run -- src/run/draft-mode.test.ts src/run/run.test.ts src/snapshot/snapshot.test.ts src/reporting/html-report.test.ts
+
+  - id: add-configurable-tool-usage-reporting
+    type: implementation
+    base_commit: 35fe97e
+    task: tasks/add-configurable-tool-usage-reporting.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/config/config.test.ts src/run/run.test.ts src/reporting/html-report.test.ts
 
   - id: shiptest-smoke
     type: implementation

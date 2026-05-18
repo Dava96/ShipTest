@@ -47,6 +47,7 @@ export interface AttemptReport {
     readonly model: string;
   };
   readonly agent: Pick<AgentRunResult, "ok" | "status" | "signals" | "telemetry">;
+  readonly tool_usage?: AgentRunResult["tool_usage"];
   readonly submission?: {
     readonly changed_files: readonly string[];
     readonly is_empty: boolean;
