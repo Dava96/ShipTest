@@ -35,6 +35,9 @@ function renderReport(results: RunResults, attempts: readonly AttemptReport[]): 
 <td>${escapeHtml(attempt.evaluation?.verdict ?? "not_run")}</td>
 <td>${attempt.evaluation?.score ?? ""}</td>
 <td>${attempt.agent.telemetry.usage.total_tokens}</td>
+<td>${attempt.agent.telemetry.usage.uncached_tokens}</td>
+<td>${attempt.agent.telemetry.usage.cache_read_tokens}</td>
+<td>${formatUsd(attempt.agent.telemetry.usage.estimated_cost_usd?.total)}</td>
 <td>${formatDuration(attempt.timings_ms?.total_ms)}</td>
 <td>${formatDuration(attempt.timings_ms?.agent_workspace_prepare_ms)}</td>
 <td>${formatDuration(attempt.timings_ms?.evaluation_workspace_prepare_ms)}</td>
@@ -73,6 +76,9 @@ code { background: #f4f6f7; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
   <div class="card"><strong>Needs review</strong><br>${results.summary.needs_review}</div>
   <div class="card"><strong>Failed</strong><br>${results.summary.failed}</div>
   <div class="card"><strong>Total tokens</strong><br>${results.summary.total_tokens}</div>
+  <div class="card"><strong>Uncached tokens</strong><br>${results.summary.uncached_tokens}</div>
+  <div class="card"><strong>Cache read tokens</strong><br>${results.summary.cache_read_tokens}</div>
+  <div class="card"><strong>Output tokens</strong><br>${results.summary.output_tokens}</div>
   <div class="card"><strong>Total estimated cost</strong><br>${formatUsd(results.summary.estimated_cost_usd)}</div>
   <div class="card"><strong>Elapsed</strong><br>${formatDuration(results.summary.duration_ms)}</div>
 </div>
@@ -85,7 +91,7 @@ ${renderBenchmarkRows(results)}
 </table>
 <h2>Attempts</h2>
 <table>
-<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Tokens</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
+<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Total tokens</th><th>Uncached tokens</th><th>Cache read</th><th>Cost</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>

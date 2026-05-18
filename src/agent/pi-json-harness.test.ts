@@ -56,6 +56,7 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     expect(result.telemetry.session).toMatchObject({ id: "fake-session" });
     expect(result.telemetry.tools.bash).toEqual({ calls: 1, failures: 1 });
     expect(result.telemetry.usage.total_tokens).toBe(3);
+    expect(result.telemetry.usage.uncached_tokens).toBe(3);
     expect(result.submission?.changed_files).toEqual(["src/agent-output.txt"]);
     expect(result.tool_usage).toMatchObject({
       summary: { tool_calls: 1, failed_tool_calls: 1 },
@@ -378,6 +379,29 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     expect(tokenBudgetResult.status).toBe("budget_exceeded");
     expect(tokenBudgetResult.signals.map((signal) => signal.id)).toContain(
       "max_total_tokens_exceeded",
+    );
+
+    const uncachedBudgetPi = await createFakePi(
+      fixture.root,
+      `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", usage: { input: 10, output: 10, cacheRead: 1000, cacheWrite: 5, totalTokens: 1025 } } }));
+`,
+    );
+    const uncachedBudgetResult = await runPiJsonAgentAttempt({
+      preparedBaselinePath: fixture.preparedBaselinePath,
+      agentWorkspacePath: path.join(fixture.root, "agent-workspace-uncached-budget"),
+      configDir: fixture.configDir,
+      benchmark: fixture.benchmark,
+      model: fixture.model,
+      limits: { ...fixture.limits, max_total_tokens: 2000, max_uncached_tokens: 20 },
+      artifactsDir: path.join(fixture.root, "artifacts-uncached-budget"),
+      piExecutable: uncachedBudgetPi.executable,
+      piExecutableArgs: uncachedBudgetPi.args,
+      overwrite: true,
+    });
+    expect(uncachedBudgetResult.status).toBe("budget_exceeded");
+    expect(uncachedBudgetResult.signals.map((signal) => signal.id)).toContain(
+      "max_uncached_tokens_exceeded",
     );
   });
 

@@ -10,6 +10,10 @@ type PiEventHandlerMap = {
   readonly [Event in PiJsonEvent as Event["type"]]: PiEventHandler<Event>;
 };
 
+type MutableUsage = {
+  -readonly [Key in keyof AgentTelemetry["usage"]]: AgentTelemetry["usage"][Key];
+};
+
 interface MutableTelemetry {
   session?: AgentTelemetry["session"];
   lifecycle: {
@@ -29,14 +33,7 @@ interface MutableTelemetry {
     malformed_events: number;
   };
   tools: Record<string, { calls: number; failures: number }>;
-  usage: {
-    input: number;
-    output: number;
-    cache_read: number;
-    cache_write: number;
-    total_tokens: number;
-    cost_total?: number;
-  };
+  usage: MutableUsage;
   final_response?: string;
   error_messages: string[];
   compactions: Array<{
@@ -265,7 +262,15 @@ function createMutableTelemetry(): MutableTelemetry {
       malformed_events: 0,
     },
     tools: {},
-    usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, total_tokens: 0 },
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_tokens: 0,
+      uncached_tokens: 0,
+      source: "pi",
+    },
     error_messages: [],
     compactions: [],
     auto_retries: [],
@@ -317,14 +322,25 @@ function addUsageFromMessage(telemetry: MutableTelemetry, value: unknown): void 
     return;
   }
   const usage = value.usage;
-  telemetry.usage.input += numberValue(usage.input) ?? 0;
-  telemetry.usage.output += numberValue(usage.output) ?? 0;
-  telemetry.usage.cache_read += numberValue(usage.cacheRead) ?? 0;
-  telemetry.usage.cache_write += numberValue(usage.cacheWrite) ?? 0;
+  const inputTokens = numberValue(usage.input) ?? 0;
+  const outputTokens = numberValue(usage.output) ?? 0;
+  const cacheReadTokens = numberValue(usage.cacheRead) ?? 0;
+  const cacheWriteTokens = numberValue(usage.cacheWrite) ?? 0;
+  telemetry.usage.input_tokens += inputTokens;
+  telemetry.usage.output_tokens += outputTokens;
+  telemetry.usage.cache_read_tokens += cacheReadTokens;
+  telemetry.usage.cache_write_tokens += cacheWriteTokens;
   telemetry.usage.total_tokens += numberValue(usage.totalTokens) ?? 0;
+  telemetry.usage.uncached_tokens += inputTokens + outputTokens + cacheWriteTokens;
   if (isRecord(usage.cost)) {
-    telemetry.usage.cost_total =
-      (telemetry.usage.cost_total ?? 0) + (numberValue(usage.cost.total) ?? 0);
+    const existing = telemetry.usage.estimated_cost_usd ?? {};
+    telemetry.usage.estimated_cost_usd = {
+      input: (existing.input ?? 0) + (numberValue(usage.cost.input) ?? 0),
+      output: (existing.output ?? 0) + (numberValue(usage.cost.output) ?? 0),
+      cache_read: (existing.cache_read ?? 0) + (numberValue(usage.cost.cacheRead) ?? 0),
+      cache_write: (existing.cache_write ?? 0) + (numberValue(usage.cost.cacheWrite) ?? 0),
+      total: (existing.total ?? 0) + (numberValue(usage.cost.total) ?? 0),
+    };
   }
 }
 
