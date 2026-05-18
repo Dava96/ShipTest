@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { once } from "node:events";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createSnapshotManifest } from "../snapshot/manifest.js";
@@ -24,6 +25,10 @@ import type {
   AgentSignal,
   AgentTelemetry,
 } from "./types.js";
+
+export const PiJsonHarnessDefaults = {
+  MaxPendingStdoutLineBytes: 10 * 1024 * 1024,
+} as const;
 
 export class PiJsonHarness implements AgentHarness {
   readonly id = "pi-json";
@@ -235,7 +240,7 @@ async function runPiProcess(options: {
     ? createWriteStream(options.piEventsPath, { flags: "w", encoding: "utf8" })
     : undefined;
   let stderrTail = "";
-  let pendingStdout = "";
+  let stdoutProcessing = Promise.resolve();
 
   const stopForBudget = (signal: AgentSignal, nextStatus: AgentRunResult["status"]): void => {
     if (stoppedForBudget) {
@@ -258,21 +263,23 @@ async function runPiProcess(options: {
     );
   }, options.limits.max_attempt_mins * 60_000);
 
+  const stdoutParser = createStdoutParser({
+    telemetry,
+    toolUsageRecorder,
+    limits: options.limits,
+    stopForBudget,
+  });
+
   child.stdout.on("data", (chunk: Buffer) => {
-    pendingStdout += chunk.toString("utf8");
-    const lines = pendingStdout.split("\n");
-    pendingStdout = lines.pop() ?? "";
-    for (const line of lines) {
-      if (rawEventsStream) {
-        rawEventsStream.write(`${line}\n`);
-      }
-      parsePiJsonLineIntoTelemetry(telemetry, line);
-      const event = parsePiJsonLine(line);
-      if (event && event !== "empty" && event !== "malformed") {
-        toolUsageRecorder.handlePiEvent(event);
-      }
-      enforceEventBudgets(telemetry, options.limits, stopForBudget);
-    }
+    child.stdout.pause();
+    stdoutProcessing = stdoutProcessing
+      .then(async () => {
+        if (rawEventsStream) {
+          await writeStreamChunk(rawEventsStream, chunk);
+        }
+        stdoutParser.processChunk(chunk.toString("utf8"));
+      })
+      .finally(() => child.stdout.resume());
   });
   child.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString("utf8");
@@ -291,18 +298,8 @@ async function runPiProcess(options: {
     return null;
   });
   clearTimeout(attemptTimer);
-
-  if (pendingStdout.trim()) {
-    if (rawEventsStream) {
-      rawEventsStream.write(`${pendingStdout}\n`);
-    }
-    parsePiJsonLineIntoTelemetry(telemetry, pendingStdout);
-    const event = parsePiJsonLine(pendingStdout);
-    if (event && event !== "empty" && event !== "malformed") {
-      toolUsageRecorder.handlePiEvent(event);
-    }
-    enforceEventBudgets(telemetry, options.limits, stopForBudget);
-  }
+  await stdoutProcessing;
+  stdoutParser.finish();
   await closeStream(rawEventsStream);
   await writeFile(options.stderrPath, stderrTail, "utf8");
   const toolUsage = await toolUsageRecorder.finish();
@@ -336,6 +333,83 @@ async function runPiProcess(options: {
   }
 
   return { status, signals, telemetry, tool_usage: toolUsage };
+}
+
+function createStdoutParser(options: {
+  readonly telemetry: AgentTelemetry;
+  readonly toolUsageRecorder: ToolUsageRecorder;
+  readonly limits: AgentRunOptions["limits"];
+  readonly stopForBudget: (signal: AgentSignal, status: AgentRunResult["status"]) => void;
+}): { readonly processChunk: (text: string) => void; readonly finish: () => void } {
+  let pendingLine = "";
+  let skippingOversizedLine = false;
+
+  const processLine = (line: string): void => {
+    parsePiJsonLineIntoTelemetry(options.telemetry, line);
+    const event = parsePiJsonLine(line);
+    if (event && event !== "empty" && event !== "malformed") {
+      options.toolUsageRecorder.handlePiEvent(event);
+    }
+    enforceEventBudgets(options.telemetry, options.limits, options.stopForBudget);
+  };
+
+  return {
+    processChunk: (text: string): void => {
+      let remaining = text;
+      while (remaining.length > 0) {
+        if (skippingOversizedLine) {
+          const newlineIndex = remaining.indexOf("\n");
+          if (newlineIndex === -1) {
+            return;
+          }
+          remaining = remaining.slice(newlineIndex + 1);
+          skippingOversizedLine = false;
+          continue;
+        }
+
+        const newlineIndex = remaining.indexOf("\n");
+        const segment = newlineIndex === -1 ? remaining : remaining.slice(0, newlineIndex);
+        const candidateBytes =
+          Buffer.byteLength(pendingLine, "utf8") + Buffer.byteLength(segment, "utf8");
+        if (candidateBytes > PiJsonHarnessDefaults.MaxPendingStdoutLineBytes) {
+          incrementOversizedEvent(options.telemetry);
+          pendingLine = "";
+          if (newlineIndex === -1) {
+            skippingOversizedLine = true;
+            return;
+          }
+          remaining = remaining.slice(newlineIndex + 1);
+          continue;
+        }
+
+        if (newlineIndex === -1) {
+          pendingLine += segment;
+          return;
+        }
+
+        const line = `${pendingLine}${segment}`;
+        pendingLine = "";
+        processLine(line);
+        remaining = remaining.slice(newlineIndex + 1);
+      }
+    },
+    finish: (): void => {
+      if (!skippingOversizedLine && pendingLine.trim()) {
+        processLine(pendingLine);
+      }
+      pendingLine = "";
+    },
+  };
+}
+
+function incrementOversizedEvent(telemetry: AgentTelemetry): void {
+  (telemetry.counts as { oversized_events: number }).oversized_events += 1;
+}
+
+async function writeStreamChunk(stream: WriteStream, chunk: Buffer): Promise<void> {
+  if (!stream.write(chunk)) {
+    await once(stream, "drain");
+  }
 }
 
 async function closeStream(

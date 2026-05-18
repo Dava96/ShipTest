@@ -31,6 +31,7 @@ interface MutableTelemetry {
     compactions: number;
     auto_retries: number;
     malformed_events: number;
+    oversized_events: number;
   };
   tools: Record<string, { calls: number; failures: number }>;
   usage: MutableUsage;
@@ -260,6 +261,7 @@ function createMutableTelemetry(): MutableTelemetry {
       compactions: 0,
       auto_retries: 0,
       malformed_events: 0,
+      oversized_events: 0,
     },
     tools: {},
     usage: {
