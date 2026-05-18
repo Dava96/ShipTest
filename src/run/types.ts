@@ -104,6 +104,11 @@ export interface RunResults {
     readonly needs_review: number;
     readonly failed: number;
     readonly total_tokens: number;
+    readonly input_tokens: number;
+    readonly output_tokens: number;
+    readonly cache_read_tokens: number;
+    readonly cache_write_tokens: number;
+    readonly uncached_tokens: number;
     readonly duration_ms?: number;
     readonly estimated_cost_usd?: number;
   };

@@ -417,7 +417,7 @@ function createRunResults(options: {
     byBenchmark.set(attempt.benchmark_id, list);
   }
   const estimatedCost = sumOptional(
-    options.attempts.map((attempt) => attempt.agent.telemetry.usage.cost_total),
+    options.attempts.map((attempt) => attempt.agent.telemetry.usage.estimated_cost_usd?.total),
   );
   const status: RunStatus = options.statusOverride ?? computeFinalRunStatus(options.attempts);
   return {
@@ -444,10 +444,12 @@ function createRunResults(options: {
         (attempt) => attempt.evaluation?.verdict === "needs_review",
       ).length,
       failed: options.attempts.filter((attempt) => attempt.evaluation?.verdict === "failed").length,
-      total_tokens: options.attempts.reduce(
-        (total, attempt) => total + attempt.agent.telemetry.usage.total_tokens,
-        0,
-      ),
+      total_tokens: sumUsage(options.attempts, "total_tokens"),
+      input_tokens: sumUsage(options.attempts, "input_tokens"),
+      output_tokens: sumUsage(options.attempts, "output_tokens"),
+      cache_read_tokens: sumUsage(options.attempts, "cache_read_tokens"),
+      cache_write_tokens: sumUsage(options.attempts, "cache_write_tokens"),
+      uncached_tokens: sumUsage(options.attempts, "uncached_tokens"),
       duration_ms: options.durationMs,
       ...(estimatedCost === undefined ? {} : { estimated_cost_usd: estimatedCost }),
     },
@@ -463,6 +465,21 @@ function createRunResults(options: {
       events_jsonl: toRunRelativePath(options.runRootPath, options.eventsPath),
     },
   };
+}
+
+function sumUsage(
+  attempts: readonly AttemptReport[],
+  key: keyof Pick<
+    AttemptReport["agent"]["telemetry"]["usage"],
+    | "input_tokens"
+    | "output_tokens"
+    | "cache_read_tokens"
+    | "cache_write_tokens"
+    | "uncached_tokens"
+    | "total_tokens"
+  >,
+): number {
+  return attempts.reduce((total, attempt) => total + attempt.agent.telemetry.usage[key], 0);
 }
 
 function sumOptional(values: readonly (number | undefined)[]): number | undefined {

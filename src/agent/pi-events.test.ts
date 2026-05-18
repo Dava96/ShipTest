@@ -29,7 +29,7 @@ describe("Pi JSON event parsing", () => {
               cacheRead: 2,
               cacheWrite: 1,
               totalTokens: 18,
-              cost: { total: 0.25 },
+              cost: { input: 0.1, output: 0.05, cacheRead: 0.02, cacheWrite: 0.03, total: 0.25 },
             },
           },
         }),
@@ -73,12 +73,20 @@ describe("Pi JSON event parsing", () => {
     });
     expect(telemetry.tools.bash).toEqual({ calls: 1, failures: 1 });
     expect(telemetry.usage).toMatchObject({
-      input: 10,
-      output: 5,
-      cache_read: 2,
-      cache_write: 1,
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
       total_tokens: 18,
-      cost_total: 0.25,
+      uncached_tokens: 16,
+      estimated_cost_usd: {
+        input: 0.1,
+        output: 0.05,
+        cache_read: 0.02,
+        cache_write: 0.03,
+        total: 0.25,
+      },
+      source: "pi",
     });
     expect(telemetry.final_response).toBe("Done");
     expect(telemetry.auto_retries).toHaveLength(2);

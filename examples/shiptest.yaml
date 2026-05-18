@@ -69,7 +69,10 @@ defaults:
     max_attempt_mins: 30
     max_turns: 40
     max_tool_calls: 200
-    max_total_tokens: 1000000
+    max_total_tokens: 5000000
+    max_uncached_tokens: 1000000
+    max_output_tokens: 250000
+    max_cache_read_tokens: 5000000
   agent_context:
     load_context_files: false
     exclude_paths:
@@ -181,6 +184,14 @@ benchmarks:
     attempts: 1
     evaluation:
       scoring_command: npm run test:run -- src/run/run.test.ts src/reporting/html-report.test.ts
+
+  - id: split-token-budget-and-reporting
+    type: implementation
+    base_commit: 793221b
+    task: tasks/split-token-budget-and-reporting.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/agent/pi-events.test.ts src/agent/pi-json-harness.test.ts src/reporting/html-report.test.ts src/run/run.test.ts
 
   - id: shiptest-smoke
     type: implementation

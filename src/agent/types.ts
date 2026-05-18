@@ -16,7 +16,11 @@ export type AgentSignalId =
   | "context_exhausted"
   | "max_attempt_mins_exceeded"
   | "max_tool_calls_exceeded"
+  | "max_cache_read_tokens_exceeded"
+  | "max_estimated_cost_usd_exceeded"
+  | "max_output_tokens_exceeded"
   | "max_total_tokens_exceeded"
+  | "max_uncached_tokens_exceeded"
   | "max_turns_exceeded"
   | "submission_extraction_failed"
   | "submission_extracted";
@@ -53,14 +57,7 @@ export interface AgentTelemetry {
     readonly malformed_events: number;
   };
   readonly tools: Record<string, { readonly calls: number; readonly failures: number }>;
-  readonly usage: {
-    readonly input: number;
-    readonly output: number;
-    readonly cache_read: number;
-    readonly cache_write: number;
-    readonly total_tokens: number;
-    readonly cost_total?: number;
-  };
+  readonly usage: AgentTokenUsage;
   readonly final_response?: string;
   readonly error_messages: readonly string[];
   readonly compactions: readonly {
@@ -76,6 +73,29 @@ export interface AgentTelemetry {
     readonly error_message?: string;
     readonly success?: boolean;
   }[];
+}
+
+export interface AgentTokenUsage {
+  /** Fresh/non-cached input tokens processed by the model across requests. */
+  readonly input_tokens: number;
+  /** Model-generated output tokens. */
+  readonly output_tokens: number;
+  /** Tokens read from provider/model cache. */
+  readonly cache_read_tokens: number;
+  /** Tokens written to provider/model cache. */
+  readonly cache_write_tokens: number;
+  /** Input + output + cache read + cache write tokens as reported/normalized by the harness. */
+  readonly total_tokens: number;
+  /** Input + output + cache write tokens; excludes cache reads. */
+  readonly uncached_tokens: number;
+  readonly estimated_cost_usd?: {
+    readonly input?: number;
+    readonly output?: number;
+    readonly cache_read?: number;
+    readonly cache_write?: number;
+    readonly total?: number;
+  };
+  readonly source: "pi" | "unknown";
 }
 
 export interface AgentRunOptions {

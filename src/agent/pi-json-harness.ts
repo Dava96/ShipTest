@@ -408,6 +408,62 @@ function enforceEventBudgets(
     );
     return;
   }
+  if (
+    limits.max_estimated_cost_usd !== undefined &&
+    (telemetry.usage.estimated_cost_usd?.total ?? 0) > limits.max_estimated_cost_usd
+  ) {
+    stopForBudget(
+      {
+        id: "max_estimated_cost_usd_exceeded",
+        severity: "error",
+        message: `Agent exceeded max_estimated_cost_usd (${limits.max_estimated_cost_usd}).`,
+      },
+      "budget_exceeded",
+    );
+    return;
+  }
+  if (
+    limits.max_output_tokens !== undefined &&
+    telemetry.usage.output_tokens > limits.max_output_tokens
+  ) {
+    stopForBudget(
+      {
+        id: "max_output_tokens_exceeded",
+        severity: "error",
+        message: `Agent exceeded max_output_tokens (${limits.max_output_tokens}).`,
+      },
+      "budget_exceeded",
+    );
+    return;
+  }
+  if (
+    limits.max_uncached_tokens !== undefined &&
+    telemetry.usage.uncached_tokens > limits.max_uncached_tokens
+  ) {
+    stopForBudget(
+      {
+        id: "max_uncached_tokens_exceeded",
+        severity: "error",
+        message: `Agent exceeded max_uncached_tokens (${limits.max_uncached_tokens}).`,
+      },
+      "budget_exceeded",
+    );
+    return;
+  }
+  if (
+    limits.max_cache_read_tokens !== undefined &&
+    telemetry.usage.cache_read_tokens > limits.max_cache_read_tokens
+  ) {
+    stopForBudget(
+      {
+        id: "max_cache_read_tokens_exceeded",
+        severity: "error",
+        message: `Agent exceeded max_cache_read_tokens (${limits.max_cache_read_tokens}).`,
+      },
+      "budget_exceeded",
+    );
+    return;
+  }
   if (telemetry.usage.total_tokens > limits.max_total_tokens) {
     stopForBudget(
       {

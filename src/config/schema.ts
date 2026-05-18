@@ -120,6 +120,9 @@ const LimitsShape = {
   max_total_tokens: positiveInteger
     .max(SchemaLimits.MaxTotalTokensMax)
     .default(SchemaLimits.MaxTotalTokensDefault),
+  max_uncached_tokens: positiveInteger.max(SchemaLimits.MaxTotalTokensMax).optional(),
+  max_output_tokens: positiveInteger.max(SchemaLimits.MaxTotalTokensMax).optional(),
+  max_cache_read_tokens: positiveInteger.max(SchemaLimits.MaxTotalTokensMax).optional(),
   max_estimated_cost_usd: z.number().positive().optional(),
 } as const;
 
