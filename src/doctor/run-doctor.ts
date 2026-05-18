@@ -47,24 +47,29 @@ export async function runDoctor(
   const repoPath = resolveConfigRelativePath(context.configDir, context.config.project.repo);
   validateDoctorOutputPath(outputRootPath, repoPath);
 
-  const benchmarks = options.benchmarkId
-    ? context.config.benchmarks.filter((benchmark) => benchmark.id === options.benchmarkId)
+  const selectedBenchmarkIds =
+    options.benchmarkIds ?? (options.benchmarkId ? [options.benchmarkId] : undefined);
+  const selectedBenchmarkIdSet = selectedBenchmarkIds ? new Set(selectedBenchmarkIds) : undefined;
+  const benchmarks = selectedBenchmarkIdSet
+    ? context.config.benchmarks.filter((benchmark) => selectedBenchmarkIdSet.has(benchmark.id))
     : context.config.benchmarks;
-  if (options.benchmarkId && benchmarks.length === 0) {
-    throw new Error(`Unknown benchmark id: ${options.benchmarkId}`);
+  for (const benchmarkId of selectedBenchmarkIds ?? []) {
+    if (!context.config.benchmarks.some((benchmark) => benchmark.id === benchmarkId)) {
+      throw new Error(`Unknown benchmark id: ${benchmarkId}`);
+    }
   }
 
   await mkdir(outputRootPath, { recursive: true });
   const workspaceRootPath = path.join(os.tmpdir(), "shiptest-doctor-work", randomUUID());
   const benchmarkResults: DoctorBenchmarkResult[] = [];
   for (const benchmark of benchmarks) {
-    benchmarkResults.push(
-      await runBenchmarkDoctor(context, benchmark.id, {
-        ...options,
-        outputRootPath,
-        workspaceRootPath,
-      }),
-    );
+    const benchmarkResult = await runBenchmarkDoctor(context, benchmark.id, {
+      ...options,
+      outputRootPath,
+      workspaceRootPath,
+    });
+    benchmarkResults.push(benchmarkResult);
+    await writeBenchmarkDoctorResult(outputRootPath, benchmarkResult);
   }
 
   const result: DoctorResult = {
@@ -73,7 +78,7 @@ export async function runDoctor(
   };
   await writeFile(
     path.join(outputRootPath, "doctor-result.json"),
-    `${JSON.stringify(result, null, 2)}\n`,
+    `${JSON.stringify(createDoctorResultIndex(result), null, 2)}\n`,
   );
   return result;
 }
@@ -90,7 +95,7 @@ async function runBenchmarkDoctor(
 
   const startedAt = Date.now();
   const timings = createEmptyTimings();
-  const benchmarkOutputPath = path.join(options.outputRootPath, benchmarkId);
+  const benchmarkOutputPath = benchmarkDoctorOutputPath(options.outputRootPath, benchmarkId);
   if (await pathExists(benchmarkOutputPath)) {
     await safeRemoveDescendant(options.outputRootPath, benchmarkOutputPath);
   }
@@ -369,6 +374,41 @@ async function buildSnapshotSafely(options: BuildSnapshotOptions) {
       ],
     };
   }
+}
+
+async function writeBenchmarkDoctorResult(
+  outputRootPath: string,
+  benchmarkResult: DoctorBenchmarkResult,
+): Promise<void> {
+  const outputPath = benchmarkDoctorOutputPath(outputRootPath, benchmarkResult.benchmark_id);
+  await mkdir(outputPath, { recursive: true });
+  await writeFile(
+    path.join(outputPath, "doctor-result.json"),
+    `${JSON.stringify(benchmarkResult, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function createDoctorResultIndex(result: DoctorResult): object {
+  return {
+    ok: result.ok,
+    benchmark_results: result.benchmark_results.map((benchmarkResult) => ({
+      benchmark_id: benchmarkResult.benchmark_id,
+      ok: benchmarkResult.ok,
+      timings_ms: benchmarkResult.timings_ms,
+      doctor_result: path
+        .join("benchmarks", sanitizePathSegment(benchmarkResult.benchmark_id), "doctor-result.json")
+        .replaceAll(path.sep, "/"),
+    })),
+  };
+}
+
+function benchmarkDoctorOutputPath(outputRootPath: string, benchmarkId: string): string {
+  return path.join(outputRootPath, "benchmarks", sanitizePathSegment(benchmarkId));
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function createBuildSnapshotOptions(

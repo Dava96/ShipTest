@@ -166,6 +166,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/config/config.test.ts src/run/run.test.ts src/reporting/html-report.test.ts
 
+  - id: refactor-doctor-per-benchmark-artifacts
+    type: implementation
+    base_commit: 4c7f2fd
+    task: tasks/refactor-doctor-per-benchmark-artifacts.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md

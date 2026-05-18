@@ -57,17 +57,19 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
   const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
   for (const benchmarkId of benchmarkIds) {
     options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
-    const doctorResult = await runDoctor(context, {
-      outputRootPath: layout.doctorOutputPath,
-      cacheRootPath: layout.cacheRootPath,
-      benchmarkId,
-      snapshotSource,
-      onProgress: (event) => {
-        if (event.phase === "cache") {
-          options.onProgress?.(`[${benchmarkId}] ${event.message}`);
-        }
-      },
-    });
+  }
+  const doctorResult = await runDoctor(context, {
+    outputRootPath: layout.doctorOutputPath,
+    cacheRootPath: layout.cacheRootPath,
+    benchmarkIds,
+    snapshotSource,
+    onProgress: (event) => {
+      if (event.phase === "cache" && event.benchmark_id) {
+        options.onProgress?.(`[${event.benchmark_id}] ${event.message}`);
+      }
+    },
+  });
+  for (const benchmarkId of benchmarkIds) {
     const benchmarkDoctorResult = doctorResult.benchmark_results.find(
       (result) => result.benchmark_id === benchmarkId,
     );
