@@ -2,7 +2,12 @@ import type { AgentRunResult } from "../agent/types.js";
 import type { ResolvedShiptestConfig } from "../config/schema.js";
 import type { CleanRoomEvaluationResult } from "../evaluation/types.js";
 
-export type RunStatus = "completed" | "completed_with_issues" | "failed_to_start";
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_issues"
+  | "failed_to_start"
+  | "crashed";
 export type RunMode = "reproducible" | "draft";
 export type SnapshotSource = "git_commit" | "working_tree";
 export type AttemptStatus =

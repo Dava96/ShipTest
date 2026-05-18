@@ -114,6 +114,25 @@ describe("runShiptest", () => {
     ).resolves.toContain("bench-two");
   });
 
+  it("writes running results and report before an attempt finishes", async () => {
+    const fixture = await createFixture({ observePartialArtifacts: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      draft: true,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.status).toBe("completed");
+    const observed = JSON.parse(await readFile(fixture.partialObservationPath, "utf8")) as {
+      readonly status: string;
+      readonly reportExists: boolean;
+    };
+    expect(observed).toEqual({ status: "running", reportExists: true });
+  });
+
   it("continues after an agent failure and records completed_with_issues", async () => {
     const fixture = await createFixture({ failingPi: true });
 
@@ -140,11 +159,16 @@ describe("runShiptest", () => {
 });
 
 async function createFixture(
-  options: { readonly failingPi?: boolean; readonly secondBenchmark?: boolean } = {},
+  options: {
+    readonly failingPi?: boolean;
+    readonly secondBenchmark?: boolean;
+    readonly observePartialArtifacts?: boolean;
+  } = {},
 ): Promise<{
   readonly configPath: string;
   readonly fakePiPath: string;
   readonly runRootPath: string;
+  readonly partialObservationPath: string;
 }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-run-"));
   const repoPath = path.join(root, "repo");
@@ -153,6 +177,7 @@ async function createFixture(
   await writeFile(path.join(repoPath, "src", "index.txt"), "baseline\n", "utf8");
   await initializeCleanGitRepo(repoPath);
 
+  const partialObservationPath = path.join(root, "partial-observation.json");
   const fakePiPath = path.join(root, "fake-pi.cjs");
   await writeFile(
     fakePiPath,
@@ -161,6 +186,14 @@ async function createFixture(
 process.stderr.write("boom\\n"); process.exit(3);\n`
       : `if (process.argv.includes("--list-models")) { console.log("provider      model"); console.log("openai-codex  fake"); process.exit(0); }
 const fs = require("node:fs");
+${
+  options.observePartialArtifacts
+    ? `const resultsPath = ${JSON.stringify(path.join(runRootPath, "results.json"))};
+const reportPath = ${JSON.stringify(path.join(runRootPath, "report.html"))};
+const observationPath = ${JSON.stringify(partialObservationPath)};
+fs.writeFileSync(observationPath, JSON.stringify({ status: JSON.parse(fs.readFileSync(resultsPath, "utf8")).status, reportExists: fs.existsSync(reportPath) }));`
+    : ""
+}
 fs.mkdirSync("src", { recursive: true });
 fs.writeFileSync("src/generated.txt", "generated\\n");
 console.log(JSON.stringify({ type: "agent_start" }));
@@ -190,5 +223,5 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     },
   });
 
-  return { configPath: configFixture.configPath, fakePiPath, runRootPath };
+  return { configPath: configFixture.configPath, fakePiPath, runRootPath, partialObservationPath };
 }

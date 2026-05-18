@@ -174,6 +174,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
 
+  - id: write-incremental-results-and-report
+    type: implementation
+    base_commit: 7adb559
+    task: tasks/write-incremental-results-and-report.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/run.test.ts src/reporting/html-report.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md

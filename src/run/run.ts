@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runPiJsonAgentAttempt } from "../agent/pi-json-harness.js";
@@ -46,165 +46,182 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
   });
 
   const attempts: AttemptReport[] = [];
-  const preparedBaselines = new Map<
-    string,
-    {
-      readonly path: string;
-      readonly baselineCommit: string | undefined;
-      readonly workspaceKey: string;
-    }
-  >();
-  const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
-  for (const benchmarkId of benchmarkIds) {
-    options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
-  }
-  const doctorResult = await runDoctor(context, {
-    outputRootPath: layout.doctorOutputPath,
-    cacheRootPath: layout.cacheRootPath,
-    benchmarkIds,
-    snapshotSource,
-    onProgress: (event) => {
-      if (event.phase === "cache" && event.benchmark_id) {
-        options.onProgress?.(`[${event.benchmark_id}] ${event.message}`);
-      }
-    },
-  });
-  for (const benchmarkId of benchmarkIds) {
-    const benchmarkDoctorResult = doctorResult.benchmark_results.find(
-      (result) => result.benchmark_id === benchmarkId,
-    );
-    if (!benchmarkDoctorResult?.ok) {
-      throw new Error(`Prepared baseline failed for benchmark '${benchmarkId}'.`);
-    }
-    if (!benchmarkDoctorResult.prepared_baseline_path) {
-      throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
-    }
-    preparedBaselines.set(benchmarkId, {
-      path: benchmarkDoctorResult.prepared_baseline_path,
-      baselineCommit:
-        benchmarkDoctorResult.prepared_baseline_metadata?.clean_git_repo.baseline_commit,
-      workspaceKey:
-        benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
-        sanitizePathSegment(benchmarkId),
-    });
-  }
-
-  for (const item of plan.items) {
-    const attemptStartedAtMs = Date.now();
-    const attemptLayout = await createAttemptLayout({
+  const writeCurrentArtifacts = async (status: RunStatus): Promise<RunResults> => {
+    const results = createRunResults({
+      runId: layout.runId,
+      createdAt: startedAt,
+      projectName: context.config.project.name,
+      runMode,
+      snapshotSource,
       runRootPath: layout.runRootPath,
-      benchmarkId: item.benchmark.id,
-      modelId: item.model.id,
-      attempt: 1,
+      reportPath: layout.reportPath,
+      eventsPath: layout.eventsPath,
+      attempts,
+      durationMs: Date.now() - startedAtMs,
+      statusOverride: status,
     });
-    const preparedBaseline = preparedBaselines.get(item.benchmark.id);
-    if (!preparedBaseline) {
-      throw new Error(`Prepared baseline is missing for benchmark '${item.benchmark.id}'.`);
-    }
-    const workspaceLayout = createResettableWorkspaceLayout({
-      workspaceRootPath: layout.workspaceRootPath,
-      workspaceKey: preparedBaseline.workspaceKey,
-      modelId: item.model.id,
-    });
+    await writeRunArtifacts(layout.resultsPath, layout.reportPath, layout.runRootPath, results);
+    return results;
+  };
 
-    await writeRunEvent(layout.eventsPath, {
-      type: "attempt_started",
-      benchmark_id: item.benchmark.id,
-      model_id: item.model.id,
-      attempt: 1,
-    });
-    options.onProgress?.(`[${item.benchmark.id}/${item.model.id}] Running agent.`);
-
-    const agentResult = await runPiJsonAgentAttempt({
-      preparedBaselinePath: preparedBaseline.path,
-      ...(preparedBaseline.baselineCommit
-        ? { preparedBaselineCommit: preparedBaseline.baselineCommit }
-        : {}),
-      agentWorkspacePath: workspaceLayout.agentWorkspacePath,
-      configDir: context.configDir,
-      benchmark: item.benchmark,
-      model: item.model,
-      limits: item.benchmark.limits,
-      artifactsDir: attemptLayout.agentArtifactsPath,
-      overwrite: true,
-      piExecutable: options.piExecutable ?? "pi",
-      piExecutableArgs: options.piExecutableArgs ?? [],
-      toolUsage: context.config.tool_usage,
-    });
-
-    if (agentResult.submission) {
-      const candidatePatchArtifact = agentResult.artifacts.candidate_patch;
-      const changedFilesArtifact = agentResult.artifacts.changed_files;
-      if (candidatePatchArtifact) {
-        await cp(candidatePatchArtifact, attemptLayout.candidatePatchPath);
+  try {
+    const preparedBaselines = new Map<
+      string,
+      {
+        readonly path: string;
+        readonly baselineCommit: string | undefined;
+        readonly workspaceKey: string;
       }
-      if (changedFilesArtifact) {
-        await cp(changedFilesArtifact, attemptLayout.changedFilesPath);
-      }
+    >();
+    const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
+    for (const benchmarkId of benchmarkIds) {
+      options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
     }
-
-    let evaluationResult: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
-    if (agentResult.submission) {
-      options.onProgress?.(
-        `[${item.benchmark.id}/${item.model.id}] Running clean-room evaluation.`,
+    const doctorResult = await runDoctor(context, {
+      outputRootPath: layout.doctorOutputPath,
+      cacheRootPath: layout.cacheRootPath,
+      benchmarkIds,
+      snapshotSource,
+      onProgress: (event) => {
+        if (event.phase === "cache" && event.benchmark_id) {
+          options.onProgress?.(`[${event.benchmark_id}] ${event.message}`);
+        }
+      },
+    });
+    for (const benchmarkId of benchmarkIds) {
+      const benchmarkDoctorResult = doctorResult.benchmark_results.find(
+        (result) => result.benchmark_id === benchmarkId,
       );
-      evaluationResult = await runCleanRoomEvaluation({
+      if (!benchmarkDoctorResult?.ok) {
+        throw new Error(`Prepared baseline failed for benchmark '${benchmarkId}'.`);
+      }
+      if (!benchmarkDoctorResult.prepared_baseline_path) {
+        throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
+      }
+      preparedBaselines.set(benchmarkId, {
+        path: benchmarkDoctorResult.prepared_baseline_path,
+        baselineCommit:
+          benchmarkDoctorResult.prepared_baseline_metadata?.clean_git_repo.baseline_commit,
+        workspaceKey:
+          benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
+          sanitizePathSegment(benchmarkId),
+      });
+    }
+    await writeCurrentArtifacts("running");
+
+    for (const item of plan.items) {
+      const attemptStartedAtMs = Date.now();
+      const attemptLayout = await createAttemptLayout({
+        runRootPath: layout.runRootPath,
+        benchmarkId: item.benchmark.id,
+        modelId: item.model.id,
+        attempt: 1,
+      });
+      const preparedBaseline = preparedBaselines.get(item.benchmark.id);
+      if (!preparedBaseline) {
+        throw new Error(`Prepared baseline is missing for benchmark '${item.benchmark.id}'.`);
+      }
+      const workspaceLayout = createResettableWorkspaceLayout({
+        workspaceRootPath: layout.workspaceRootPath,
+        workspaceKey: preparedBaseline.workspaceKey,
+        modelId: item.model.id,
+      });
+
+      await writeRunEvent(layout.eventsPath, {
+        type: "attempt_started",
+        benchmark_id: item.benchmark.id,
+        model_id: item.model.id,
+        attempt: 1,
+      });
+      options.onProgress?.(`[${item.benchmark.id}/${item.model.id}] Running agent.`);
+
+      const agentResult = await runPiJsonAgentAttempt({
         preparedBaselinePath: preparedBaseline.path,
         ...(preparedBaseline.baselineCommit
           ? { preparedBaselineCommit: preparedBaseline.baselineCommit }
           : {}),
-        evaluationWorkspacePath: workspaceLayout.evaluationWorkspacePath,
+        agentWorkspacePath: workspaceLayout.agentWorkspacePath,
         configDir: context.configDir,
         benchmark: item.benchmark,
-        repositoryEnvironment: context.config.repository_environment,
-        submission: agentResult.submission,
-        artifactsDir: attemptLayout.evaluationArtifactsPath,
+        model: item.model,
+        limits: item.benchmark.limits,
+        artifactsDir: attemptLayout.agentArtifactsPath,
         overwrite: true,
+        piExecutable: options.piExecutable ?? "pi",
+        piExecutableArgs: options.piExecutableArgs ?? [],
+        toolUsage: context.config.tool_usage,
       });
+
+      if (agentResult.submission) {
+        const candidatePatchArtifact = agentResult.artifacts.candidate_patch;
+        const changedFilesArtifact = agentResult.artifacts.changed_files;
+        if (candidatePatchArtifact) {
+          await cp(candidatePatchArtifact, attemptLayout.candidatePatchPath);
+        }
+        if (changedFilesArtifact) {
+          await cp(changedFilesArtifact, attemptLayout.changedFilesPath);
+        }
+      }
+
+      let evaluationResult: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
+      if (agentResult.submission) {
+        options.onProgress?.(
+          `[${item.benchmark.id}/${item.model.id}] Running clean-room evaluation.`,
+        );
+        evaluationResult = await runCleanRoomEvaluation({
+          preparedBaselinePath: preparedBaseline.path,
+          ...(preparedBaseline.baselineCommit
+            ? { preparedBaselineCommit: preparedBaseline.baselineCommit }
+            : {}),
+          evaluationWorkspacePath: workspaceLayout.evaluationWorkspacePath,
+          configDir: context.configDir,
+          benchmark: item.benchmark,
+          repositoryEnvironment: context.config.repository_environment,
+          submission: agentResult.submission,
+          artifactsDir: attemptLayout.evaluationArtifactsPath,
+          overwrite: true,
+        });
+      }
+
+      const attemptReport = createAttemptReport({
+        runId: layout.runId,
+        runRootPath: layout.runRootPath,
+        attemptLayout,
+        benchmark: item.benchmark,
+        model: item.model,
+        agentResult,
+        timingsMs: createAttemptTimings(attemptStartedAtMs, agentResult, evaluationResult),
+        ...(evaluationResult ? { evaluationResult } : {}),
+      });
+      await mkdir(path.dirname(attemptLayout.attemptJsonPath), { recursive: true });
+      await writeFile(attemptLayout.attemptJsonPath, `${JSON.stringify(attemptReport, null, 2)}\n`);
+      attempts.push(attemptReport);
+      await writeRunEvent(layout.eventsPath, {
+        type: "attempt_completed",
+        benchmark_id: item.benchmark.id,
+        model_id: item.model.id,
+        attempt: 1,
+        status: attemptReport.status,
+      });
+      await writeCurrentArtifacts("running");
     }
 
-    const attemptReport = createAttemptReport({
-      runId: layout.runId,
-      runRootPath: layout.runRootPath,
-      attemptLayout,
-      benchmark: item.benchmark,
-      model: item.model,
-      agentResult,
-      timingsMs: createAttemptTimings(attemptStartedAtMs, agentResult, evaluationResult),
-      ...(evaluationResult ? { evaluationResult } : {}),
-    });
-    await mkdir(path.dirname(attemptLayout.attemptJsonPath), { recursive: true });
-    await writeFile(attemptLayout.attemptJsonPath, `${JSON.stringify(attemptReport, null, 2)}\n`);
-    attempts.push(attemptReport);
+    const results = await writeCurrentArtifacts(computeFinalRunStatus(attempts));
     await writeRunEvent(layout.eventsPath, {
-      type: "attempt_completed",
-      benchmark_id: item.benchmark.id,
-      model_id: item.model.id,
-      attempt: 1,
-      status: attemptReport.status,
+      type: "run_completed",
+      run_id: layout.runId,
+      status: results.status,
     });
+    return results;
+  } catch (error) {
+    await writeCurrentArtifacts("crashed").catch(() => undefined);
+    await writeRunEvent(layout.eventsPath, {
+      type: "run_crashed",
+      run_id: layout.runId,
+      message: error instanceof Error ? error.message : String(error),
+    }).catch(() => undefined);
+    throw error;
   }
-
-  const results = createRunResults({
-    runId: layout.runId,
-    createdAt: startedAt,
-    projectName: context.config.project.name,
-    runMode,
-    snapshotSource,
-    runRootPath: layout.runRootPath,
-    reportPath: layout.reportPath,
-    eventsPath: layout.eventsPath,
-    attempts,
-    durationMs: Date.now() - startedAtMs,
-  });
-  await writeFile(layout.resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
-  await writeHtmlReport({ runRootPath: layout.runRootPath, reportPath: layout.reportPath });
-  await writeRunEvent(layout.eventsPath, {
-    type: "run_completed",
-    run_id: layout.runId,
-    status: results.status,
-  });
-  return results;
 }
 
 export async function regenerateReport(runRootPath: string): Promise<string> {
@@ -356,6 +373,30 @@ function classifyAttemptStatus(agentOk: boolean, evaluationOk: boolean | undefin
   return "completed";
 }
 
+async function writeRunArtifacts(
+  resultsPath: string,
+  reportPath: string,
+  runRootPath: string,
+  results: RunResults,
+): Promise<void> {
+  await atomicWriteFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`);
+  await writeHtmlReport({ runRootPath, reportPath: `${reportPath}.tmp` });
+  await rename(`${reportPath}.tmp`, reportPath);
+}
+
+async function atomicWriteFile(pathname: string, contents: string): Promise<void> {
+  const tmpPath = `${pathname}.tmp`;
+  await mkdir(path.dirname(pathname), { recursive: true });
+  await writeFile(tmpPath, contents, "utf8");
+  await rename(tmpPath, pathname);
+}
+
+function computeFinalRunStatus(attempts: readonly AttemptReport[]): RunStatus {
+  return attempts.every((attempt) => attempt.status === "completed")
+    ? "completed"
+    : "completed_with_issues";
+}
+
 function createRunResults(options: {
   readonly runId: string;
   readonly createdAt: string;
@@ -367,6 +408,7 @@ function createRunResults(options: {
   readonly eventsPath: string;
   readonly attempts: readonly AttemptReport[];
   readonly durationMs: number;
+  readonly statusOverride?: RunStatus;
 }): RunResults {
   const byBenchmark = new Map<string, string[]>();
   for (const attempt of options.attempts) {
@@ -377,9 +419,7 @@ function createRunResults(options: {
   const estimatedCost = sumOptional(
     options.attempts.map((attempt) => attempt.agent.telemetry.usage.cost_total),
   );
-  const status: RunStatus = options.attempts.every((attempt) => attempt.status === "completed")
-    ? "completed"
-    : "completed_with_issues";
+  const status: RunStatus = options.statusOverride ?? computeFinalRunStatus(options.attempts);
   return {
     schema_version: 1,
     run_id: options.runId,
