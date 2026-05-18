@@ -7,6 +7,7 @@ export const piEventTypes = [
   "message_start",
   "message_end",
   "tool_execution_start",
+  "tool_execution_update",
   "tool_execution_end",
   "compaction_start",
   "compaction_end",
@@ -25,6 +26,7 @@ export type PiJsonEvent =
   | PiMessageStartEvent
   | PiMessageEndEvent
   | PiToolExecutionStartEvent
+  | PiToolExecutionUpdateEvent
   | PiToolExecutionEndEvent
   | PiCompactionStartEvent
   | PiCompactionEndEvent
@@ -69,12 +71,25 @@ export interface PiMessageEndEvent extends Record<string, unknown> {
 
 export interface PiToolExecutionStartEvent extends Record<string, unknown> {
   readonly type: "tool_execution_start";
+  readonly toolCallId?: unknown;
   readonly toolName?: unknown;
+  readonly args?: unknown;
+}
+
+export interface PiToolExecutionUpdateEvent extends Record<string, unknown> {
+  readonly type: "tool_execution_update";
+  readonly toolCallId?: unknown;
+  readonly toolName?: unknown;
+  readonly args?: unknown;
+  readonly partialResult?: unknown;
 }
 
 export interface PiToolExecutionEndEvent extends Record<string, unknown> {
   readonly type: "tool_execution_end";
+  readonly toolCallId?: unknown;
   readonly toolName?: unknown;
+  readonly args?: unknown;
+  readonly result?: unknown;
   readonly isError?: unknown;
 }
 

@@ -127,6 +127,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       overwrite: true,
       piExecutable: options.piExecutable ?? "pi",
       piExecutableArgs: options.piExecutableArgs ?? [],
+      toolUsage: context.config.tool_usage,
     });
 
     if (agentResult.submission) {
@@ -279,6 +280,9 @@ function createAttemptReport(options: {
       signals: options.agentResult.signals,
       telemetry: options.agentResult.telemetry,
     },
+    ...(options.agentResult.tool_usage
+      ? { tool_usage: relativizeToolUsage(options.agentResult.tool_usage, options.runRootPath) }
+      : {}),
     ...(options.agentResult.submission
       ? {
           submission: {
@@ -291,6 +295,20 @@ function createAttemptReport(options: {
     human_review: { status: "pending" },
     timings_ms: options.timingsMs,
     artifacts,
+  };
+}
+
+function relativizeToolUsage(
+  toolUsage: NonNullable<AttemptReport["tool_usage"]>,
+  runRootPath: string,
+): NonNullable<AttemptReport["tool_usage"]> {
+  return {
+    ...toolUsage,
+    artifacts: {
+      ...(toolUsage.artifacts.tool_calls_jsonl
+        ? { tool_calls_jsonl: toRunRelativePath(runRootPath, toolUsage.artifacts.tool_calls_jsonl) }
+        : {}),
+    },
   };
 }
 
