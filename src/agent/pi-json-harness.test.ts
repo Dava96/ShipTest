@@ -9,7 +9,7 @@ import {
   benchmark as configBenchmark,
   createResolvedShiptestConfig,
 } from "../test-support/shiptest-config-fixture.js";
-import { runPiJsonAgentAttempt } from "./pi-json-harness.js";
+import { PiJsonHarnessDefaults, runPiJsonAgentAttempt } from "./pi-json-harness.js";
 
 interface Fixture {
   readonly root: string;
@@ -78,6 +78,36 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     await expect(readFile(result.artifacts.candidate_patch as string, "utf8")).resolves.toContain(
       "agent-output.txt",
     );
+  });
+
+  it("skips oversized Pi JSON lines and continues parsing later events", async () => {
+    const fixture = await createFixture();
+    const fakePi = await createFakePi(
+      fixture.root,
+      `#!/usr/bin/env node
+process.stdout.write("{\\"type\\":\\"tool_execution_start\\",\\"toolName\\":\\"bash\\",\\"padding\\":\\"" + "x".repeat(${PiJsonHarnessDefaults.MaxPendingStdoutLineBytes + 1}) + "\\"}\\n");
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "after oversized" }], usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 } } }));
+console.log(JSON.stringify({ type: "agent_end", messages: [] }));
+`,
+    );
+
+    const result = await runPiJsonAgentAttempt({
+      preparedBaselinePath: fixture.preparedBaselinePath,
+      agentWorkspacePath: path.join(fixture.root, "agent-workspace-oversized"),
+      configDir: fixture.configDir,
+      benchmark: fixture.benchmark,
+      model: fixture.model,
+      limits: fixture.limits,
+      artifactsDir: path.join(fixture.root, "artifacts-oversized"),
+      piExecutable: fakePi.executable,
+      piExecutableArgs: fakePi.args,
+      overwrite: true,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.telemetry.counts.oversized_events).toBe(1);
+    expect(result.telemetry.final_response).toBe("after oversized");
+    expect(result.telemetry.usage.total_tokens).toBe(2);
   });
 
   it("applies tool usage highlights and optional raw event/excerpt capture", async () => {

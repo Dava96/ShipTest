@@ -193,6 +193,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/agent/pi-events.test.ts src/agent/pi-json-harness.test.ts src/reporting/html-report.test.ts src/run/run.test.ts
 
+  - id: stream-pi-output-with-bounded-parsing
+    type: implementation
+    base_commit: 569c68d
+    task: tasks/stream-pi-output-with-bounded-parsing.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/agent/pi-events.test.ts
+
   - id: shiptest-smoke
     type: implementation
     task: tasks/shiptest-smoke.md

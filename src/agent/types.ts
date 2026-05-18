@@ -55,6 +55,7 @@ export interface AgentTelemetry {
     readonly compactions: number;
     readonly auto_retries: number;
     readonly malformed_events: number;
+    readonly oversized_events: number;
   };
   readonly tools: Record<string, { readonly calls: number; readonly failures: number }>;
   readonly usage: AgentTokenUsage;

@@ -70,6 +70,7 @@ describe("Pi JSON event parsing", () => {
       compactions: 1,
       auto_retries: 1,
       malformed_events: 1,
+      oversized_events: 0,
     });
     expect(telemetry.tools.bash).toEqual({ calls: 1, failures: 1 });
     expect(telemetry.usage).toMatchObject({
