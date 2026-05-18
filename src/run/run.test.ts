@@ -67,6 +67,72 @@ describe("runShiptest", () => {
     );
   });
 
+  it("writes one aggregate doctor index with per-benchmark doctor details", async () => {
+    const fixture = await createFixture({ secondBenchmark: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      draft: true,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.benchmark_results.map((benchmark) => benchmark.benchmark_id)).toEqual([
+      "bench",
+      "bench-two",
+    ]);
+    const doctorIndex = JSON.parse(
+      await readFile(path.join(fixture.runRootPath, "doctor", "doctor-result.json"), "utf8"),
+    ) as {
+      readonly benchmark_results: readonly {
+        readonly benchmark_id: string;
+        readonly doctor_result: string;
+      }[];
+    };
+    expect(doctorIndex.benchmark_results).toEqual([
+      expect.objectContaining({
+        benchmark_id: "bench",
+        doctor_result: "benchmarks/bench/doctor-result.json",
+      }),
+      expect.objectContaining({
+        benchmark_id: "bench-two",
+        doctor_result: "benchmarks/bench-two/doctor-result.json",
+      }),
+    ]);
+    await expect(
+      readFile(
+        path.join(fixture.runRootPath, "doctor", "benchmarks", "bench", "doctor-result.json"),
+        "utf8",
+      ),
+    ).resolves.toContain("bench");
+    await expect(
+      readFile(
+        path.join(fixture.runRootPath, "doctor", "benchmarks", "bench-two", "doctor-result.json"),
+        "utf8",
+      ),
+    ).resolves.toContain("bench-two");
+  });
+
+  it("writes running results and report before an attempt finishes", async () => {
+    const fixture = await createFixture({ observePartialArtifacts: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      draft: true,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.status).toBe("completed");
+    const observed = JSON.parse(await readFile(fixture.partialObservationPath, "utf8")) as {
+      readonly status: string;
+      readonly reportExists: boolean;
+    };
+    expect(observed).toEqual({ status: "running", reportExists: true });
+  });
+
   it("continues after an agent failure and records completed_with_issues", async () => {
     const fixture = await createFixture({ failingPi: true });
 
@@ -92,10 +158,17 @@ describe("runShiptest", () => {
   });
 });
 
-async function createFixture(options: { readonly failingPi?: boolean } = {}): Promise<{
+async function createFixture(
+  options: {
+    readonly failingPi?: boolean;
+    readonly secondBenchmark?: boolean;
+    readonly observePartialArtifacts?: boolean;
+  } = {},
+): Promise<{
   readonly configPath: string;
   readonly fakePiPath: string;
   readonly runRootPath: string;
+  readonly partialObservationPath: string;
 }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-run-"));
   const repoPath = path.join(root, "repo");
@@ -104,6 +177,7 @@ async function createFixture(options: { readonly failingPi?: boolean } = {}): Pr
   await writeFile(path.join(repoPath, "src", "index.txt"), "baseline\n", "utf8");
   await initializeCleanGitRepo(repoPath);
 
+  const partialObservationPath = path.join(root, "partial-observation.json");
   const fakePiPath = path.join(root, "fake-pi.cjs");
   await writeFile(
     fakePiPath,
@@ -112,6 +186,14 @@ async function createFixture(options: { readonly failingPi?: boolean } = {}): Pr
 process.stderr.write("boom\\n"); process.exit(3);\n`
       : `if (process.argv.includes("--list-models")) { console.log("provider      model"); console.log("openai-codex  fake"); process.exit(0); }
 const fs = require("node:fs");
+${
+  options.observePartialArtifacts
+    ? `const resultsPath = ${JSON.stringify(path.join(runRootPath, "results.json"))};
+const reportPath = ${JSON.stringify(path.join(runRootPath, "report.html"))};
+const observationPath = ${JSON.stringify(partialObservationPath)};
+fs.writeFileSync(observationPath, JSON.stringify({ status: JSON.parse(fs.readFileSync(resultsPath, "utf8")).status, reportExists: fs.existsSync(reportPath) }));`
+    : ""
+}
 fs.mkdirSync("src", { recursive: true });
 fs.writeFileSync("src/generated.txt", "generated\\n");
 console.log(JSON.stringify({ type: "agent_start" }));
@@ -131,9 +213,15 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     models: [model("fake")],
     defaultModels: ["fake"],
     scoringCommand: `node -e "process.exit(0)"`,
-    benchmarks: [benchmark("bench", { task: "tasks/task.md" })],
-    files: { "tasks/task.md": "Create generated file.\n" },
+    benchmarks: [
+      benchmark("bench", { task: "tasks/task.md" }),
+      ...(options.secondBenchmark ? [benchmark("bench-two", { task: "tasks/task-two.md" })] : []),
+    ],
+    files: {
+      "tasks/task.md": "Create generated file.\n",
+      ...(options.secondBenchmark ? { "tasks/task-two.md": "Create generated file again.\n" } : {}),
+    },
   });
 
-  return { configPath: configFixture.configPath, fakePiPath, runRootPath };
+  return { configPath: configFixture.configPath, fakePiPath, runRootPath, partialObservationPath };
 }

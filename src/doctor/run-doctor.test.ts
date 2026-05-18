@@ -64,9 +64,18 @@ describe("runDoctor", () => {
       size_scan_ms: expect.any(Number),
       cache_save_ms: expect.any(Number),
     });
+    const aggregate = JSON.parse(
+      await readFile(path.join(outputRootPath, "doctor-result.json"), "utf8"),
+    ) as { readonly benchmark_results: readonly { readonly doctor_result: string }[] };
+    expect(aggregate.benchmark_results[0]?.doctor_result).toBe(
+      "benchmarks/doctor-smoke/doctor-result.json",
+    );
     await expect(
-      readFile(path.join(outputRootPath, "doctor-result.json"), "utf8"),
-    ).resolves.toContain("doctor-smoke");
+      readFile(
+        path.join(outputRootPath, "benchmarks", "doctor-smoke", "doctor-result.json"),
+        "utf8",
+      ),
+    ).resolves.toContain("DOCTOR_ADVISORY_VALIDATION_FAILED");
   });
 
   it("uses a valid prepared-baseline cache and skips validation unless noCache is set", async () => {
@@ -159,6 +168,37 @@ describe("runDoctor", () => {
       ["doctor-smoke", true],
       ["doctor-failing", false],
     ]);
+    const aggregate = JSON.parse(
+      await readFile(path.join(fixturePath, ".shiptest", "doctor", "doctor-result.json"), "utf8"),
+    ) as {
+      readonly benchmark_results: readonly {
+        readonly benchmark_id: string;
+        readonly doctor_result: string;
+      }[];
+    };
+    expect(aggregate.benchmark_results).toEqual([
+      expect.objectContaining({
+        benchmark_id: "doctor-smoke",
+        doctor_result: "benchmarks/doctor-smoke/doctor-result.json",
+      }),
+      expect.objectContaining({
+        benchmark_id: "doctor-failing",
+        doctor_result: "benchmarks/doctor-failing/doctor-result.json",
+      }),
+    ]);
+    await expect(
+      readFile(
+        path.join(
+          fixturePath,
+          ".shiptest",
+          "doctor",
+          "benchmarks",
+          "doctor-failing",
+          "doctor-result.json",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain("DOCTOR_SNAPSHOT_FAILED");
   });
 });
 

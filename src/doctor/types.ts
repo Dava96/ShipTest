@@ -33,6 +33,7 @@ export interface DoctorOptions {
   readonly outputRootPath: string;
   readonly cacheRootPath?: string;
   readonly benchmarkId?: string;
+  readonly benchmarkIds?: readonly string[];
   readonly noCache?: boolean;
   readonly shiptestVersion?: string;
   readonly commandOutputMaxBytes?: number;
