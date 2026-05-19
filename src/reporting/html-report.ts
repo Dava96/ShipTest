@@ -1,7 +1,18 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AttemptReport, RunResults } from "../run/types.js";
+import {
+  benchmarkDetailReportPath,
+  modelDetailReportPath,
+  modelsOverviewReportPath,
+} from "./html-report-components.js";
+import {
+  renderBenchmarkReport,
+  renderModelReport,
+  renderModelsReport,
+  renderReport,
+} from "./html-report-renderer.js";
 
 export async function writeHtmlReport(options: {
   readonly runRootPath: string;
@@ -21,148 +32,172 @@ export async function writeHtmlReport(options: {
     }
   }
 
-  await writeFile(options.reportPath, renderReport(results, attempts), "utf8");
-}
+  const reportAttempts = await sanitizeAttemptArtifactLinks(options.runRootPath, attempts);
 
-function renderReport(results: RunResults, attempts: readonly AttemptReport[]): string {
-  const rows = attempts
-    .map(
-      (attempt) => `<tr>
-<td>${escapeHtml(attempt.benchmark_id)}</td>
-<td>${escapeHtml(attempt.model.id)}</td>
-<td>${escapeHtml(attempt.status)}</td>
-<td>${escapeHtml(attempt.agent.status)}</td>
-<td>${escapeHtml(attempt.evaluation?.verdict ?? "not_run")}</td>
-<td>${attempt.evaluation?.score ?? ""}</td>
-<td>${attempt.agent.telemetry.usage.total_tokens}</td>
-<td>${attempt.agent.telemetry.usage.uncached_tokens}</td>
-<td>${attempt.agent.telemetry.usage.cache_read_tokens}</td>
-<td>${formatUsd(attempt.agent.telemetry.usage.estimated_cost_usd?.total)}</td>
-<td>${formatDuration(attempt.timings_ms?.total_ms)}</td>
-<td>${formatDuration(attempt.timings_ms?.agent_workspace_prepare_ms)}</td>
-<td>${formatDuration(attempt.timings_ms?.evaluation_workspace_prepare_ms)}</td>
-<td>${formatDuration(attempt.timings_ms?.evaluation_scoring_ms)}</td>
-<td>${renderToolUsageCell(attempt)}</td>
-<td>${artifactLink(attempt.artifacts.candidate_patch, "patch")}</td>
-<td>${artifactLink(attempt.artifacts.attempt_json, "json")}</td>
-</tr>`,
-    )
-    .join("\n");
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>ShipTest report ${escapeHtml(results.run_id)}</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 2rem; color: #17202a; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #d5d8dc; padding: 0.5rem; text-align: left; vertical-align: top; }
-th { background: #f4f6f7; }
-code { background: #f4f6f7; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
-.summary { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-.card { border: 1px solid #d5d8dc; border-radius: 0.4rem; padding: 0.75rem; min-width: 10rem; }
-</style>
-</head>
-<body>
-<h1>ShipTest report</h1>
-<p><strong>Run:</strong> <code>${escapeHtml(results.run_id)}</code></p>
-<p><strong>Status:</strong> ${escapeHtml(results.status)}</p>
-<p><strong>Run mode:</strong> ${formatRunMode(results)}</p>
-<div class="summary">
-  <div class="card"><strong>Benchmarks</strong><br>${results.summary.benchmarks}</div>
-  <div class="card"><strong>Agent runs</strong><br>${results.summary.agent_runs}</div>
-  <div class="card"><strong>Passed</strong><br>${results.summary.passed}</div>
-  <div class="card"><strong>Needs review</strong><br>${results.summary.needs_review}</div>
-  <div class="card"><strong>Failed</strong><br>${results.summary.failed}</div>
-  <div class="card"><strong>Total tokens</strong><br>${results.summary.total_tokens}</div>
-  <div class="card"><strong>Uncached tokens</strong><br>${results.summary.uncached_tokens}</div>
-  <div class="card"><strong>Cache read tokens</strong><br>${results.summary.cache_read_tokens}</div>
-  <div class="card"><strong>Output tokens</strong><br>${results.summary.output_tokens}</div>
-  <div class="card"><strong>Total estimated cost</strong><br>${formatUsd(results.summary.estimated_cost_usd)}</div>
-  <div class="card"><strong>Elapsed</strong><br>${formatDuration(results.summary.duration_ms)}</div>
-</div>
-<h2>Benchmarks</h2>
-<table>
-<thead><tr><th>Benchmark</th><th>Attempts</th><th>Elapsed</th></tr></thead>
-<tbody>
-${renderBenchmarkRows(results)}
-</tbody>
-</table>
-<h2>Attempts</h2>
-<table>
-<thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Total tokens</th><th>Uncached tokens</th><th>Cache read</th><th>Cost</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
-<tbody>
-${rows}
-</tbody>
-</table>
-</body>
-</html>
-`;
-}
-
-function formatRunMode(results: RunResults): string {
-  if (results.run_mode === "draft") {
-    return "Draft / working tree — non-reproducible local files may be included";
-  }
-  return "Reproducible / git commit";
-}
-
-function renderToolUsageCell(attempt: AttemptReport): string {
-  const usage = attempt.tool_usage;
-  if (!usage) {
-    return "";
-  }
-  const categoryText =
-    usage.categories.length > 0
-      ? usage.categories.map((category) => `${category.label}: ${category.status}`).join("; ")
-      : "No highlighted categories configured";
-  return escapeHtml(
-    `Tool calls: ${usage.summary.tool_calls}; Failed: ${usage.summary.failed_tool_calls}; ${categoryText}`,
+  await writeFile(options.reportPath, renderReport(results, reportAttempts), "utf8");
+  await writeFile(
+    path.join(options.runRootPath, modelsOverviewReportPath()),
+    renderModelsReport({ results, attempts: reportAttempts }),
+    "utf8",
   );
+  await writeBenchmarkReports({
+    runRootPath: options.runRootPath,
+    results,
+    attempts: reportAttempts,
+  });
+  await writeModelReports({ runRootPath: options.runRootPath, results, attempts: reportAttempts });
 }
 
-function renderBenchmarkRows(results: RunResults): string {
-  return results.benchmark_results
-    .map(
-      (benchmark) => `<tr>
-<td>${escapeHtml(benchmark.benchmark_id)}</td>
-<td>${benchmark.attempts.length}</td>
-<td>${formatDuration(benchmark.duration_ms)}</td>
-</tr>`,
-    )
-    .join("\n");
+async function sanitizeAttemptArtifactLinks(
+  runRootPath: string,
+  attempts: readonly AttemptReport[],
+): Promise<AttemptReport[]> {
+  return Promise.all(attempts.map((attempt) => sanitizeAttemptArtifactLink(runRootPath, attempt)));
 }
 
-function formatUsd(value: number | undefined): string {
-  if (value === undefined) {
-    return "not available";
+async function sanitizeAttemptArtifactLink(
+  runRootPath: string,
+  attempt: AttemptReport,
+): Promise<AttemptReport> {
+  const candidatePatch = await availableArtifactPath(
+    runRootPath,
+    attempt.artifacts.candidate_patch,
+  );
+  const attemptJson = await availableArtifactPath(runRootPath, attempt.artifacts.attempt_json);
+  const toolCallsJsonl = await availableArtifactPath(
+    runRootPath,
+    attempt.tool_usage?.artifacts.tool_calls_jsonl,
+  );
+  const evaluationCommands =
+    attempt.evaluation?.commands === undefined
+      ? undefined
+      : await Promise.all(
+          attempt.evaluation.commands.map(async (command) => {
+            const stdoutArtifact = await availableArtifactPath(
+              runRootPath,
+              command.stdout_artifact,
+            );
+            const stderrArtifact = await availableArtifactPath(
+              runRootPath,
+              command.stderr_artifact,
+            );
+            return {
+              command: command.command,
+              exit_code: command.exit_code,
+              duration_ms: command.duration_ms,
+              ...(stdoutArtifact === undefined ? {} : { stdout_artifact: stdoutArtifact }),
+              ...(stderrArtifact === undefined ? {} : { stderr_artifact: stderrArtifact }),
+            };
+          }),
+        );
+
+  const artifacts = { ...attempt.artifacts };
+  if (candidatePatch === undefined) {
+    delete artifacts.candidate_patch;
+  } else {
+    artifacts.candidate_patch = candidatePatch;
   }
-  return `$${value.toFixed(4)}`;
-}
-
-function formatDuration(durationMs: number | undefined): string {
-  if (durationMs === undefined) {
-    return "";
+  if (attemptJson === undefined) {
+    delete artifacts.attempt_json;
+  } else {
+    artifacts.attempt_json = attemptJson;
   }
-  const totalSeconds = Math.round(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+  const toolUsage =
+    attempt.tool_usage === undefined
+      ? undefined
+      : {
+          ...attempt.tool_usage,
+          artifacts: {
+            ...(toolCallsJsonl === undefined ? {} : { tool_calls_jsonl: toolCallsJsonl }),
+          },
+        };
+
+  return {
+    ...attempt,
+    artifacts,
+    ...(toolUsage === undefined ? {} : { tool_usage: toolUsage }),
+    ...(attempt.evaluation === undefined || evaluationCommands === undefined
+      ? {}
+      : {
+          evaluation: {
+            ...attempt.evaluation,
+            commands: evaluationCommands,
+          },
+        }),
+  };
 }
 
-function artifactLink(artifactPath: string | undefined, label: string): string {
-  return artifactPath ? `<a href="${escapeAttribute(artifactPath)}">${escapeHtml(label)}</a>` : "";
+async function availableArtifactPath(
+  runRootPath: string,
+  artifactPath: string | undefined,
+): Promise<string | undefined> {
+  if (!artifactPath) return undefined;
+  const filesystemArtifactPath = artifactPath.split(/[?#]/, 1)[0] ?? artifactPath;
+  const resolvedPath = path.isAbsolute(filesystemArtifactPath)
+    ? filesystemArtifactPath
+    : path.join(runRootPath, filesystemArtifactPath);
+  try {
+    const artifactStat = await stat(resolvedPath);
+    return artifactStat.isFile() && artifactStat.size > 0 ? artifactPath : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+async function writeModelReports(options: {
+  readonly runRootPath: string;
+  readonly results: RunResults;
+  readonly attempts: readonly AttemptReport[];
+}): Promise<void> {
+  const attemptsByModel = new Map<string, AttemptReport[]>();
+  for (const attempt of options.attempts) {
+    const existing = attemptsByModel.get(attempt.model.id) ?? [];
+    existing.push(attempt);
+    attemptsByModel.set(attempt.model.id, existing);
+  }
+  for (const [modelId, modelAttempts] of attemptsByModel.entries()) {
+    const reportPath = path.join(options.runRootPath, modelDetailReportPath(modelId));
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(
+      reportPath,
+      renderModelReport({
+        results: options.results,
+        modelId,
+        attempts: modelAttempts,
+        allAttempts: options.attempts,
+      }),
+      "utf8",
+    );
+  }
 }
 
-function escapeAttribute(value: string): string {
-  return escapeHtml(value);
+async function writeBenchmarkReports(options: {
+  readonly runRootPath: string;
+  readonly results: RunResults;
+  readonly attempts: readonly AttemptReport[];
+}): Promise<void> {
+  const attemptsByBenchmark = new Map<string, AttemptReport[]>();
+  for (const attempt of options.attempts) {
+    const existing = attemptsByBenchmark.get(attempt.benchmark_id) ?? [];
+    existing.push(attempt);
+    attemptsByBenchmark.set(attempt.benchmark_id, existing);
+  }
+  for (const benchmark of options.results.benchmark_results) {
+    const benchmarkAttempts = attemptsByBenchmark.get(benchmark.benchmark_id) ?? [];
+    const reportPath = path.join(
+      options.runRootPath,
+      benchmarkDetailReportPath(benchmark.benchmark_id),
+    );
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(
+      reportPath,
+      renderBenchmarkReport({
+        results: options.results,
+        benchmarkId: benchmark.benchmark_id,
+        attempts: benchmarkAttempts,
+      }),
+      "utf8",
+    );
+  }
 }

@@ -74,6 +74,11 @@ describe("HTML report", () => {
       "utf8",
     );
     await writeFile(
+      path.join(root, "benchmarks", "invoice", "attempts", "001", "candidate.patch"),
+      "diff --git a/invoice.ts b/invoice.ts\n",
+      "utf8",
+    );
+    await writeFile(
       path.join(root, "results.json"),
       JSON.stringify({
         schema_version: 1,
@@ -119,6 +124,15 @@ describe("HTML report", () => {
     expect(html).toContain("Total estimated cost");
     expect(html).toContain("$0.1235");
     expect(html).toContain("benchmarks/invoice/attempts/001/candidate.patch?x=&lt;y&gt;");
+    expect(await readFile(path.join(root, "models.html"), "utf8")).toContain(
+      "Model capability comparison",
+    );
+    expect(await readFile(path.join(root, "model-gpt-5-5-test.html"), "utf8")).toContain(
+      "Strengths radar",
+    );
+    expect(await readFile(path.join(root, "benchmark-invoice.html"), "utf8")).toContain(
+      "Quality details",
+    );
   });
 
   it("renders attempts without evaluation or patch artifacts", async () => {
@@ -167,11 +181,18 @@ describe("HTML report", () => {
             auto_retries: [],
           },
         },
+        tool_usage: {
+          summary: { tool_calls: 1, failed_tool_calls: 0 },
+          categories: [],
+          artifacts: { tool_calls_jsonl: "empty-tool-calls.jsonl" },
+        },
         human_review: { status: "pending" },
-        artifacts: { attempt_json: "attempt.json" },
+        artifacts: { attempt_json: "attempt.json", candidate_patch: "empty.patch" },
       }),
       "utf8",
     );
+    await writeFile(path.join(root, "empty.patch"), "", "utf8");
+    await writeFile(path.join(root, "empty-tool-calls.jsonl"), "", "utf8");
     await writeFile(
       path.join(root, "results.json"),
       JSON.stringify({
@@ -210,6 +231,10 @@ describe("HTML report", () => {
     expect(html).toContain("not_run");
     expect(html).toContain("process_failed");
     expect(html).toContain("not available");
+    expect(html).toContain("artifact-link-disabled");
+    const benchmarkHtml = await readFile(path.join(root, "benchmark-invoice.html"), "utf8");
+    expect(benchmarkHtml).toContain("Artifact was not generated");
+    expect(benchmarkHtml).not.toContain("empty-tool-calls.jsonl");
   });
 });
 
