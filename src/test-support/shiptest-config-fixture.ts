@@ -15,6 +15,7 @@ export interface ShiptestConfigInputOptions {
   readonly projectName?: string;
   readonly projectRepo?: ProjectRepoFixtureValue;
   readonly repositoryEnvironment?: ShiptestConfigInput["repository_environment"];
+  readonly runner?: ShiptestConfigInput["runner"];
   readonly models?: readonly ModelInput[];
   readonly defaultModels?: readonly string[] | "omit";
   readonly benchmarks?: readonly BenchmarkInput[];
@@ -70,6 +71,7 @@ export function createShiptestConfigInput(
     repository_environment: options.repositoryEnvironment ?? {
       validation_commands: { required: ["npm test"] },
     },
+    ...(options.runner === undefined ? {} : { runner: options.runner }),
     models: [...models],
     defaults: {
       run: defaultModels === undefined ? {} : { models: [...defaultModels] },

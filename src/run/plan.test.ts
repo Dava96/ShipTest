@@ -22,7 +22,7 @@ describe("run plan", () => {
       "invoice/sonnet",
       "legacy-auth/gpt-5.5",
     ]);
-    expect(formatRunPlan(plan)).toContain("Agent runs: 3");
+    expect(formatRunPlan(plan)).toContain("Benchmark/model pairs: 3");
     expect(formatRunPlan(plan)).toContain("Default models: gpt-5.5, sonnet");
     expect(plan.warnings).toContain(
       "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",

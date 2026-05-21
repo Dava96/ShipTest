@@ -1,5 +1,6 @@
 import { cp, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { isFilesystemRoot, pathExists, safeRemoveDescendant } from "../utils/filesystem.js";
 import { defaultGitOperations, type GitOperations } from "../utils/git.js";
 
@@ -74,7 +75,37 @@ export async function prepareCopiedWorkspace(options: {
 
 async function copyWorkspace(preparedBaselinePath: string, workspacePath: string): Promise<void> {
   await mkdir(path.dirname(path.resolve(workspacePath)), { recursive: true });
-  await cp(preparedBaselinePath, workspacePath, { recursive: true, verbatimSymlinks: true });
+  await copyWorkspaceWithRetry(preparedBaselinePath, workspacePath);
+}
+
+async function copyWorkspaceWithRetry(
+  preparedBaselinePath: string,
+  workspacePath: string,
+): Promise<void> {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await cp(preparedBaselinePath, workspacePath, { recursive: true, verbatimSymlinks: true });
+      return;
+    } catch (error) {
+      if (attempt === maxAttempts || !isTransientCopyError(error)) {
+        throw error;
+      }
+      await safeRemoveDescendant(path.dirname(path.resolve(workspacePath)), workspacePath).catch(
+        () => undefined,
+      );
+      await delay(100 * attempt);
+    }
+  }
+}
+
+function isTransientCopyError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ["EBUSY", "ENOENT", "EPERM"].includes(String(error.code))
+  );
 }
 
 async function resetWorkspace(

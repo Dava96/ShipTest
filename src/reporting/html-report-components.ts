@@ -51,7 +51,7 @@ export function renderMetricCards(
     <div class="metric-card quality"><div class="metric-head"><span class="metric-title">Quality</span><span class="rank">${results.summary.passed} / ${results.summary.agent_runs}</span></div><div class="metric-value"><span class="metric-number green">${passRate}<span class="metric-unit">%</span></span><span class="metric-label">passed evaluation verdicts</span></div></div>
     <div class="metric-card speed"><div class="metric-head"><span class="metric-title">Speed</span><span class="rank">median</span></div><div class="metric-value"><span class="metric-number blue">${medianSpeed === undefined ? "—" : formatNumber(medianSpeed, 1)}</span><span class="metric-label">output tokens per second</span></div></div>
     <div class="metric-card cost"><div class="metric-head"><span class="metric-title">Total estimated cost</span><span class="rank">total</span></div><div class="metric-value"><span class="metric-number red">${formatUsd(avgCost)}</span><span class="metric-label">estimated provider cost</span></div></div>
-    <div class="metric-card tokens"><div class="metric-head"><span class="metric-title">Tokens</span><span class="rank">uncached</span></div><div class="metric-value"><span class="metric-number purple">${formatCompact(results.summary.uncached_tokens)}</span><span class="metric-label">uncached tokens<br>${formatCompact(results.summary.cache_read_tokens)} cache read</span></div></div>
+    <div class="metric-card tokens"><div class="metric-head"><span class="metric-title">Tokens</span><span class="rank">uncached</span></div><div class="metric-value"><span class="metric-number purple">${formatCompact(results.summary.uncached_tokens)}</span><span class="metric-label">input ${formatCompact(results.summary.input_tokens)} · output ${formatCompact(results.summary.output_tokens)}<br>cache read ${formatCompact(results.summary.cache_read_tokens)} · cache write ${formatCompact(results.summary.cache_write_tokens)} · total ${formatCompact(results.summary.total_tokens)}${cacheReadDominates(results.summary) ? "<br>cache reads dominate total tokens" : ""}</span></div></div>
     <div class="metric-card pending${pendingCount > 0 ? " pending-active" : ""}"><div class="metric-head"><span class="metric-title">Pending</span><span class="rank">${formatStatus(results.status)}</span></div>${pendingCount > 0 ? renderPendingFleet(pendingCount) : '<div class="icon-row">✓ ✓ ✓</div>'}<div class="metric-value"><span class="metric-number">${pendingCount}</span><span class="metric-label">benchmarks awaiting attempts</span></div></div>
   </section>`;
 }
@@ -439,13 +439,13 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       formatUsd,
     ),
     chartSeries(
-      "uncached",
-      "Uncached tokens",
-      "Uncached Tokens by Model",
-      "Input + output + cache write tokens · Lower is better",
-      "var(--purple)",
+      "input",
+      "Input tokens",
+      "Input Tokens by Model",
+      "Fresh model input tokens · Lower can mean better context efficiency",
+      "var(--primary)",
       attempts,
-      (attempt) => attempt.agent.telemetry.usage.uncached_tokens,
+      (attempt) => attempt.agent.telemetry.usage.input_tokens,
       false,
       formatInteger,
     ),
@@ -472,11 +472,33 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       formatInteger,
     ),
     chartSeries(
+      "cache-write",
+      "Cache write",
+      "Cache Write Tokens by Model",
+      "Tokens written to provider cache · Usually part of uncached usage",
+      "var(--yellow)",
+      attempts,
+      (attempt) => attempt.agent.telemetry.usage.cache_write_tokens,
+      false,
+      formatInteger,
+    ),
+    chartSeries(
+      "uncached",
+      "Uncached tokens",
+      "Uncached Tokens by Model",
+      "Input + output + cache write tokens · Lower is better",
+      "var(--purple)",
+      attempts,
+      (attempt) => attempt.agent.telemetry.usage.uncached_tokens,
+      false,
+      formatInteger,
+    ),
+    chartSeries(
       "total",
       "Total tokens",
       "Total Tokens by Model",
-      "Input + output + cache-read + cache-write tokens",
-      "var(--yellow)",
+      "Input + output + cache read + cache write tokens",
+      "var(--red)",
       attempts,
       (attempt) => attempt.agent.telemetry.usage.total_tokens,
       false,
@@ -573,7 +595,7 @@ export function renderSpeedBreakdownTable(attempts: readonly AttemptReport[]): s
 export function renderCostBreakdownTable(attempts: readonly AttemptReport[]): string {
   return renderBreakdownTable(
     "Cost and token details by model",
-    ["Model", "Cost", "Uncached", "Input", "Output", "Cache read", "Total tokens"],
+    ["Model", "Cost", "Input", "Output", "Cache read", "Cache write", "Uncached", "Total tokens"],
     attempts.map((attempt) => {
       const usage = attempt.agent.telemetry.usage;
       return {
@@ -581,10 +603,11 @@ export function renderCostBreakdownTable(attempts: readonly AttemptReport[]): st
         cells: [
           escapeHtml(attempt.model.id),
           formatUsd(usage.estimated_cost_usd?.total),
-          formatInteger(usage.uncached_tokens),
           formatInteger(usage.input_tokens),
           formatInteger(usage.output_tokens),
           formatInteger(usage.cache_read_tokens),
+          formatInteger(usage.cache_write_tokens),
+          formatInteger(usage.uncached_tokens),
           formatInteger(usage.total_tokens),
         ],
       };
@@ -613,9 +636,12 @@ export function renderAttemptRows(attempts: readonly AttemptReport[]): string {
 <td>${statusBadge(attempt.agent.status)}</td>
 <td>${statusBadge(attempt.evaluation?.verdict ?? "not_run")}</td>
 <td>${attempt.evaluation?.score ?? ""}</td>
-<td>${formatCompactInteger(attempt.agent.telemetry.usage.total_tokens)}</td>
-<td>${formatCompactInteger(attempt.agent.telemetry.usage.uncached_tokens)}</td>
+<td>${formatCompactInteger(attempt.agent.telemetry.usage.input_tokens)}</td>
+<td>${formatCompactInteger(attempt.agent.telemetry.usage.output_tokens)}</td>
 <td>${formatCompactInteger(attempt.agent.telemetry.usage.cache_read_tokens)}</td>
+<td>${formatCompactInteger(attempt.agent.telemetry.usage.cache_write_tokens)}</td>
+<td>${formatCompactInteger(attempt.agent.telemetry.usage.uncached_tokens)}</td>
+<td>${formatCompactInteger(attempt.agent.telemetry.usage.total_tokens)}</td>
 <td>${formatUsd(attempt.agent.telemetry.usage.estimated_cost_usd?.total)}</td>
 <td>${formatDuration(attempt.timings_ms?.total_ms)}</td>
 <td>${formatDuration(attempt.timings_ms?.agent_workspace_prepare_ms)}</td>
@@ -669,6 +695,12 @@ function renderToolUsageSummary(attempt: AttemptReport): string {
 
 function formatCompactInteger(value: number): string {
   return value >= 1000 ? formatCompact(value) : formatInteger(value);
+}
+
+function cacheReadDominates(
+  summary: Pick<RunResults["summary"], "cache_read_tokens" | "total_tokens">,
+): boolean {
+  return summary.total_tokens > 0 && summary.cache_read_tokens / summary.total_tokens >= 0.5;
 }
 
 function outputTokensPerSecond(attempt: AttemptReport): number | undefined {

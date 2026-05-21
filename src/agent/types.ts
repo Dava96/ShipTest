@@ -13,6 +13,7 @@ export type AgentAttemptStatus =
 export type AgentSignalId =
   | "agent_completed"
   | "agent_process_failed"
+  | "agent_reported_errors"
   | "context_exhausted"
   | "max_attempt_mins_exceeded"
   | "max_tool_calls_exceeded"

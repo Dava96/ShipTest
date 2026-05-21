@@ -80,6 +80,36 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     );
   });
 
+  it("fails attempts when Pi reports model errors without token usage", async () => {
+    const fixture = await createFixture();
+    const fakePi = await createFakePi(
+      fixture.root,
+      `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "agent_start" }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", errorMessage: "Codex error: model is not supported" } }));
+console.log(JSON.stringify({ type: "agent_end", messages: [] }));
+`,
+    );
+
+    const result = await runPiJsonAgentAttempt({
+      preparedBaselinePath: fixture.preparedBaselinePath,
+      agentWorkspacePath: path.join(fixture.root, "agent-workspace-model-error"),
+      configDir: fixture.configDir,
+      benchmark: fixture.benchmark,
+      model: fixture.model,
+      limits: fixture.limits,
+      artifactsDir: path.join(fixture.root, "artifacts-model-error"),
+      piExecutable: fakePi.executable,
+      piExecutableArgs: fakePi.args,
+      overwrite: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("process_failed");
+    expect(result.telemetry.error_messages).toEqual(["Codex error: model is not supported"]);
+    expect(result.signals.map((signal) => signal.id)).toContain("agent_reported_errors");
+  });
+
   it("skips oversized Pi JSON lines and continues parsing later events", async () => {
     const fixture = await createFixture();
     const fakePi = await createFakePi(

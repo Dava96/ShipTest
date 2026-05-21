@@ -90,6 +90,14 @@ export const SnapshotSchema = z
   .strict()
   .prefault({});
 
+export const RunnerSchema = z
+  .object({
+    concurrency: positiveInteger.default(1),
+    model_attempts: positiveInteger.default(1),
+  })
+  .strict()
+  .prefault({});
+
 export const ShiptestRunnerSchema = z
   .object({
     clean_git_repo: z
@@ -309,6 +317,7 @@ const RawShiptestConfigSchema = z
       .strict(),
     repository_environment: RepositoryEnvironmentSchema,
     snapshot: SnapshotSchema,
+    runner: RunnerSchema,
     shiptest_runner: ShiptestRunnerSchema,
     tool_usage: ToolUsageSchema,
     defaults: DefaultsSchema,

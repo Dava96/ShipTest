@@ -100,7 +100,7 @@ ${reportStyles}
     <div class="section-head"><div class="section-title">Attempts & artifacts</div><div class="muted small">Completed attempts only; pending benchmarks are shown above until their attempt JSON is written.</div></div>
     <div class="panel table-wrap paginated-table" data-paginated-table data-page-size="5">
       <table>
-        <thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Total tokens</th><th>Uncached</th><th>Cache read</th><th>Cost</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
+        <thead><tr><th>Benchmark</th><th>Model</th><th>Status</th><th>Agent</th><th>Verdict</th><th>Score</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Uncached</th><th>Total tokens</th><th>Cost</th><th>Elapsed</th><th>Agent copy</th><th>Eval copy</th><th>Scoring</th><th>Tool usage</th><th>Patch</th><th>Attempt</th></tr></thead>
         <tbody>${renderAttemptRows(attempts)}</tbody>
       </table>
     </div>

@@ -315,6 +315,19 @@ async function runPiProcess(options: {
     });
   }
 
+  if (
+    status === "completed" &&
+    telemetry.error_messages.length > 0 &&
+    telemetry.usage.total_tokens === 0
+  ) {
+    status = "process_failed";
+    signals.push({
+      id: "agent_reported_errors",
+      severity: "error",
+      message: `Agent reported ${telemetry.error_messages.length} error message(s) without any token usage.`,
+    });
+  }
+
   if (status === "completed" && exitCode !== 0) {
     status = "process_failed";
     signals.push({

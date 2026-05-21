@@ -59,6 +59,23 @@ describe("config loading and validation", () => {
     } satisfies Partial<ShiptestConfigError>);
   });
 
+  it("defaults runner concurrency and model attempts", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      repository_environment: { validation_commands: { required: ["npm test"] } },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_context: {},
+        evaluation: { scoring_command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.runner).toEqual({ concurrency: 1, model_attempts: 1 });
+  });
+
   it("loads config without optional repository environment file paths", async () => {
     const fixture = await createConfigFixture();
     const configText = await import("node:fs/promises").then((fs) =>

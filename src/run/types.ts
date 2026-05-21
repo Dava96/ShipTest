@@ -34,6 +34,8 @@ export interface ShiptestRunOptions {
   readonly runRootPath?: string | undefined;
   readonly piExecutable?: string | undefined;
   readonly piExecutableArgs?: readonly string[];
+  readonly concurrency?: number;
+  readonly modelAttempts?: number;
   readonly draft?: boolean;
   readonly onProgress?: (message: string) => void;
 }
