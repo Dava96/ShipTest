@@ -22,6 +22,10 @@ snapshot:
   submodule_handling: fail_if_detected
   strip_real_git_metadata: true
 
+runner:
+  concurrency: 20
+  model_attempts: 1
+
 shiptest_runner:
   clean_git_repo:
     enabled: true
@@ -57,14 +61,26 @@ tool_usage:
             command_contains: npm run build
 
 models:
+  - id: gpt-5.2
+    provider: openai-codex
+    model: gpt-5.2
+  - id: gpt-5.4
+    provider: openai-codex
+    model: gpt-5.4
   - id: gpt-5.4-mini
     provider: openai-codex
     model: gpt-5.4-mini
+  - id: gpt-5.5
+    provider: openai-codex
+    model: gpt-5.5
 
 defaults:
   run:
     models:
+      - gpt-5.2
+      - gpt-5.4
       - gpt-5.4-mini
+      - gpt-5.5
   limits:
     max_attempt_mins: 30
     max_turns: 40
@@ -91,7 +107,7 @@ defaults:
 benchmarks:
   - id: optional-project-repo-default
     type: implementation
-    base_commit: fe58898
+    base_commit: f5c2ced
     task: tasks/optional-project-repo-default.md
     attempts: 1
     evaluation:
@@ -99,7 +115,7 @@ benchmarks:
 
   - id: refactor-test-config-fixture-introduction
     type: implementation
-    base_commit: feb21f0
+    base_commit: f5c2ced
     task: tasks/refactor-test-config-fixture-introduction.md
     attempts: 1
     evaluation:
@@ -107,7 +123,7 @@ benchmarks:
 
   - id: refactor-test-config-fixture-runner-adoption
     type: implementation
-    base_commit: 2a7e59a
+    base_commit: f5c2ced
     task: tasks/refactor-test-config-fixture-runner-adoption.md
     attempts: 1
     evaluation:
@@ -115,7 +131,7 @@ benchmarks:
 
   - id: refactor-test-config-fixture-suite-adoption
     type: implementation
-    base_commit: f1e0dc5
+    base_commit: f5c2ced
     task: tasks/refactor-test-config-fixture-suite-adoption.md
     attempts: 1
     evaluation:
@@ -123,7 +139,7 @@ benchmarks:
 
   - id: refactor-run-directory-layout
     type: implementation
-    base_commit: dd611d7
+    base_commit: f5c2ced
     task: tasks/refactor-run-directory-layout.md
     attempts: 1
     evaluation:
@@ -131,31 +147,31 @@ benchmarks:
 
   - id: refactor-resettable-workspace-pool
     type: implementation
-    base_commit: e0aabd9
+    base_commit: f5c2ced
     task: tasks/refactor-resettable-workspace-pool.md
     attempts: 1
 
   - id: refactor-pi-model-availability-precheck
     type: implementation
-    base_commit: 6c79bf0
+    base_commit: f5c2ced
     task: tasks/refactor-pi-model-availability-precheck.md
     attempts: 1
 
   - id: report-total-estimated-cost
     type: implementation
-    base_commit: 6f63300
+    base_commit: f5c2ced
     task: tasks/report-total-estimated-cost.md
     attempts: 1
 
   - id: surface-prepared-baseline-normalization-warning
     type: implementation
-    base_commit: e1d061d
+    base_commit: f5c2ced
     task: tasks/surface-prepared-baseline-normalization-warning.md
     attempts: 1
 
   - id: add-draft-working-tree-run-mode
     type: implementation
-    base_commit: 4dc3a0d
+    base_commit: f5c2ced
     task: tasks/add-draft-working-tree-run-mode.md
     attempts: 1
     evaluation:
@@ -163,7 +179,7 @@ benchmarks:
 
   - id: add-configurable-tool-usage-reporting
     type: implementation
-    base_commit: 35fe97e
+    base_commit: f5c2ced
     task: tasks/add-configurable-tool-usage-reporting.md
     attempts: 1
     evaluation:
@@ -171,7 +187,7 @@ benchmarks:
 
   - id: refactor-doctor-per-benchmark-artifacts
     type: implementation
-    base_commit: 4c7f2fd
+    base_commit: f5c2ced
     task: tasks/refactor-doctor-per-benchmark-artifacts.md
     attempts: 1
     evaluation:
@@ -179,7 +195,7 @@ benchmarks:
 
   - id: write-incremental-results-and-report
     type: implementation
-    base_commit: 7adb559
+    base_commit: f5c2ced
     task: tasks/write-incremental-results-and-report.md
     attempts: 1
     evaluation:
@@ -187,7 +203,7 @@ benchmarks:
 
   - id: split-token-budget-and-reporting
     type: implementation
-    base_commit: 793221b
+    base_commit: f5c2ced
     task: tasks/split-token-budget-and-reporting.md
     attempts: 1
     evaluation:
@@ -195,11 +211,18 @@ benchmarks:
 
   - id: stream-pi-output-with-bounded-parsing
     type: implementation
-    base_commit: 569c68d
+    base_commit: f5c2ced
     task: tasks/stream-pi-output-with-bounded-parsing.md
     attempts: 1
     evaluation:
       scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/agent/pi-events.test.ts
+
+  - id: add-config-backed-model-attempt-concurrency-scheduler
+    type: implementation
+    task: tasks/add-config-backed-model-attempt-concurrency-scheduler.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/run/attempt-scheduler.test.ts src/run/run.test.ts src/run/plan.test.ts src/config/config.test.ts
 
   - id: shiptest-smoke
     type: implementation

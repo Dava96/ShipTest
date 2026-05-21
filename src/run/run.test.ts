@@ -133,6 +133,23 @@ describe("runShiptest", () => {
     expect(observed).toEqual({ status: "running", reportExists: true });
   });
 
+  it("runs repeated model attempts from runner.model_attempts", async () => {
+    const fixture = await createFixture({ modelAttempts: 2 });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.summary.agent_runs).toBe(2);
+    expect(result.benchmark_results[0]?.attempts).toEqual([
+      "benchmarks/bench/models/fake/attempts/001/attempt.json",
+      "benchmarks/bench/models/fake/attempts/002/attempt.json",
+    ]);
+  });
+
   it("continues after an agent failure and records completed_with_issues", async () => {
     const fixture = await createFixture({ failingPi: true });
 
@@ -163,6 +180,7 @@ async function createFixture(
     readonly failingPi?: boolean;
     readonly secondBenchmark?: boolean;
     readonly observePartialArtifacts?: boolean;
+    readonly modelAttempts?: number;
   } = {},
 ): Promise<{
   readonly configPath: string;
@@ -210,6 +228,9 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     configSubdir: "config",
     projectRepo: repoPath,
     repositoryEnvironment: { validation_commands: { required: ["node --version"] } },
+    ...(options.modelAttempts === undefined
+      ? {}
+      : { runner: { model_attempts: options.modelAttempts } }),
     models: [model("fake")],
     defaultModels: ["fake"],
     scoringCommand: `node -e "process.exit(0)"`,

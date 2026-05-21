@@ -14,6 +14,7 @@ export type {
   AgentSignalId,
   AgentSignalSeverity,
   AgentTelemetry,
+  AgentTokenUsage,
 } from "./agent/types.js";
 export type { PreparedBaselineCheck } from "./baseline/check-codes.js";
 export { PreparedBaselineCheckCode } from "./baseline/check-codes.js";

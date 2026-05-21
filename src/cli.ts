@@ -40,14 +40,18 @@ program
   .option("--pi-args <json>", "JSON array of arguments to pass before ShipTest Pi arguments")
   .option("--yes", "Run without confirmation")
   .option("--draft", "Run against local working-tree state and mark results non-reproducible")
+  .option("--concurrency <count>", "Maximum concurrently running model attempts")
+  .option("--model-attempts <count>", "Number of repeated attempts per benchmark/model pair")
   .option("--json", "Print machine-readable JSON")
   .action(
     async (options: {
       readonly benchmark?: string[];
+      readonly concurrency?: string;
       readonly config?: string;
       readonly draft?: boolean;
       readonly json?: boolean;
       readonly model?: string[];
+      readonly modelAttempts?: string;
       readonly output?: string;
       readonly pi: string;
       readonly piArgs?: string;
@@ -58,6 +62,13 @@ program
       const modelIds = parseListOption(options.model);
       const plan = createRunPlan({ config: context.config, benchmarkIds, modelIds });
       const piExecutableArgs = parseJsonStringArrayOption(options.piArgs, "--pi-args");
+      const concurrency = parseOptionalPositiveIntegerOption(options.concurrency, "--concurrency");
+      const modelAttempts = parseOptionalPositiveIntegerOption(
+        options.modelAttempts,
+        "--model-attempts",
+      );
+      const resolvedConcurrency = concurrency ?? context.config.runner.concurrency;
+      const resolvedModelAttempts = modelAttempts ?? context.config.runner.model_attempts;
       if (!options.draft) {
         const projectRootPath = resolveConfigRelativePath(
           context.configDir,
@@ -76,8 +87,15 @@ program
 
       if (!options.json) {
         console.log(formatRunPlan(plan));
+        console.log(`Model attempts per benchmark/model: ${resolvedModelAttempts}`);
+        console.log(`Max active attempts: ${resolvedConcurrency}`);
         for (const warning of plan.warnings) {
           console.log(`⚠ ${warning}`);
+        }
+        if (resolvedConcurrency > 1) {
+          console.log(
+            `⚠ Running ${resolvedConcurrency} attempts concurrently may increase provider rate-limit errors and token spend.`,
+          );
         }
         if (modelAvailabilityWarning) {
           console.log(`⚠ ${modelAvailabilityWarning}`);
@@ -99,6 +117,8 @@ program
         ...(benchmarkIds ? { benchmarkIds } : {}),
         ...(modelIds ? { modelIds } : {}),
         ...(options.output ? { runRootPath: path.resolve(options.output) } : {}),
+        ...(concurrency === undefined ? {} : { concurrency }),
+        ...(modelAttempts === undefined ? {} : { modelAttempts }),
         draft: options.draft ?? false,
         piExecutable: options.pi,
         piExecutableArgs,
@@ -496,6 +516,18 @@ function parseJsonStringArrayOption(value: string | undefined, optionName: strin
   const parsed = JSON.parse(value) as unknown;
   if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
     throw new Error(`${optionName} must be a JSON array of strings.`);
+  }
+  return parsed;
+}
+
+function parseOptionalPositiveIntegerOption(
+  value: string | undefined,
+  optionName: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${optionName} must be a positive integer.`);
   }
   return parsed;
 }

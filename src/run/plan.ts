@@ -83,7 +83,7 @@ export function formatRunPlan(plan: RunPlan): string {
     ...[...benchmarkLines.values()].slice(0, 20),
     ...(benchmarkLines.size > 20 ? [`... (+${benchmarkLines.size - 20} more)`] : []),
     "",
-    `Agent runs: ${plan.items.length}`,
+    `Benchmark/model pairs: ${plan.items.length}`,
   ].join("\n");
 }
 
