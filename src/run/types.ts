@@ -63,6 +63,7 @@ export interface AttemptReport {
   readonly schema_version: 1;
   readonly run_id: string;
   readonly benchmark_id: string;
+  readonly base_commit: BenchmarkBaseCommit;
   readonly benchmark_type: ResolvedShiptestConfig["benchmarks"][number]["type"];
   readonly task: string;
   readonly attempt: number;
@@ -136,7 +137,14 @@ export interface RunResults {
   };
   readonly benchmark_results: readonly {
     readonly benchmark_id: string;
-    readonly attempts: readonly string[];
+    readonly base_commits: readonly {
+      readonly commit: string;
+      readonly label: string;
+      readonly slug: string;
+      readonly index: number;
+      readonly attempts: readonly string[];
+      readonly duration_ms?: number;
+    }[];
     readonly duration_ms?: number;
   }[];
   readonly artifacts: {

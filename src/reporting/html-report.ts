@@ -23,12 +23,14 @@ export async function writeHtmlReport(options: {
   ) as RunResults;
   const attempts: AttemptReport[] = [];
   for (const benchmark of results.benchmark_results) {
-    for (const attemptPath of benchmark.attempts) {
-      attempts.push(
-        JSON.parse(
-          await readFile(path.join(options.runRootPath, attemptPath), "utf8"),
-        ) as AttemptReport,
-      );
+    for (const baseCommit of benchmark.base_commits) {
+      for (const attemptPath of baseCommit.attempts) {
+        attempts.push(
+          JSON.parse(
+            await readFile(path.join(options.runRootPath, attemptPath), "utf8"),
+          ) as AttemptReport,
+        );
+      }
     }
   }
 

@@ -16,6 +16,7 @@ import type {
   AttemptQualitySignal,
   AttemptReport,
   AttemptStatus,
+  BenchmarkBaseCommit,
   RunResults,
   RunStatus,
   ShiptestRunOptions,
@@ -226,11 +227,11 @@ function preparedBaselineKey(benchmarkId: string, baseCommitSlug: string): strin
 }
 
 function attemptOrderKey(job: AttemptJob): string {
-  return `${job.planItem.benchmark.id}\0${job.planItem.model.id}\0${job.attempt}`;
+  return `${job.planItem.benchmark.id}\0${job.planItem.baseCommit.slug}\0${job.planItem.model.id}\0${job.attempt}`;
 }
 
 function attemptReportOrderKey(attempt: AttemptReport): string {
-  return `${attempt.benchmark_id}\0${attempt.model.id}\0${attempt.attempt}`;
+  return `${attempt.benchmark_id}\0${attempt.base_commit.slug}\0${attempt.model.id}\0${attempt.attempt}`;
 }
 
 function sortedAttempts(
@@ -358,6 +359,7 @@ async function runAttemptJob(options: {
     attemptLayout,
     attempt: job.attempt,
     benchmark: item.benchmark,
+    baseCommit: item.baseCommit,
     model: item.model,
     agentResult,
     qualitySignals,
@@ -387,6 +389,7 @@ function createAttemptReport(options: {
   };
   readonly attempt: number;
   readonly benchmark: Parameters<typeof runPiJsonAgentAttempt>[0]["benchmark"];
+  readonly baseCommit: BenchmarkBaseCommit;
   readonly model: Parameters<typeof runPiJsonAgentAttempt>[0]["model"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
   readonly qualitySignals: readonly AttemptQualitySignal[];
@@ -418,6 +421,7 @@ function createAttemptReport(options: {
     schema_version: 1,
     run_id: options.runId,
     benchmark_id: options.benchmark.id,
+    base_commit: options.baseCommit,
     benchmark_type: options.benchmark.type,
     task: options.benchmark.task,
     attempt: options.attempt,
@@ -608,10 +612,10 @@ function createRunResults(options: {
   readonly durationMs: number;
   readonly statusOverride?: RunStatus;
 }): RunResults {
-  const byBenchmark = new Map<string, string[]>();
+  const byBenchmark = new Map<string, AttemptReport[]>();
   for (const attempt of options.attempts) {
     const list = byBenchmark.get(attempt.benchmark_id) ?? [];
-    list.push(attempt.artifacts.attempt_json ?? "");
+    list.push(attempt);
     byBenchmark.set(attempt.benchmark_id, list);
   }
   const estimatedCost = sumOptional(
@@ -658,16 +662,45 @@ function createRunResults(options: {
     },
     benchmark_results: [...byBenchmark.entries()].map(([benchmark_id, attempts]) => ({
       benchmark_id,
-      attempts,
-      duration_ms: options.attempts
-        .filter((attempt) => attempt.benchmark_id === benchmark_id)
-        .reduce((total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0), 0),
+      base_commits: baseCommitResults(attempts),
+      duration_ms: attempts.reduce(
+        (total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0),
+        0,
+      ),
     })),
     artifacts: {
       report_html: toRunRelativePath(options.runRootPath, options.reportPath),
       events_jsonl: toRunRelativePath(options.runRootPath, options.eventsPath),
     },
   };
+}
+
+function baseCommitResults(
+  attempts: readonly AttemptReport[],
+): RunResults["benchmark_results"][number]["base_commits"] {
+  const byBaseCommit = new Map<string, AttemptReport[]>();
+  for (const attempt of attempts) {
+    const list = byBaseCommit.get(attempt.base_commit.slug) ?? [];
+    list.push(attempt);
+    byBaseCommit.set(attempt.base_commit.slug, list);
+  }
+  return [...byBaseCommit.values()].map((baseCommitAttempts) => {
+    const baseCommit = baseCommitAttempts[0]?.base_commit;
+    if (!baseCommit) {
+      throw new Error("Cannot create base commit result without attempts.");
+    }
+    return {
+      commit: baseCommit.commit,
+      label: baseCommit.label,
+      slug: baseCommit.slug,
+      index: baseCommit.index,
+      attempts: baseCommitAttempts.map((attempt) => attempt.artifacts.attempt_json ?? ""),
+      duration_ms: baseCommitAttempts.reduce(
+        (total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0),
+        0,
+      ),
+    };
+  });
 }
 
 function sumUsage(

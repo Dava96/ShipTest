@@ -21,7 +21,8 @@ import { renderReportFooter, renderTopbar } from "../shared/page-shell.js";
 
 export function renderReport(results: RunResults, attempts: readonly AttemptReport[]): string {
   const pendingBenchmarks = results.benchmark_results.filter(
-    (benchmark) => benchmark.attempts.length === 0,
+    (benchmark) =>
+      benchmark.base_commits.reduce((sum, baseCommit) => sum + baseCommit.attempts.length, 0) === 0,
   );
   const completedAttemptCount = attempts.length;
   const pendingCount = pendingBenchmarks.length;
