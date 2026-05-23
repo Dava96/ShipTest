@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { BenchmarkFairAttemptScheduler, createAttemptJobs } from "./attempt-scheduler.js";
 import type { RunPlanItem } from "./types.js";
 
-function item(benchmarkId: string, modelId: string): RunPlanItem {
+function item(benchmarkId: string, modelId: string, baseCommit = "base"): RunPlanItem {
   return {
     benchmark: { id: benchmarkId } as RunPlanItem["benchmark"],
+    baseCommit: { commit: baseCommit, label: baseCommit, slug: baseCommit, index: 1 },
     model: { id: modelId } as RunPlanItem["model"],
   };
 }

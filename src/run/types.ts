@@ -31,8 +31,12 @@ export interface AttemptQualitySignal {
   readonly message: string;
 }
 
+export type BenchmarkBaseCommit =
+  ResolvedShiptestConfig["benchmarks"][number]["base_commits"][number];
+
 export interface RunPlanItem {
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
+  readonly baseCommit: BenchmarkBaseCommit;
   readonly model: ResolvedShiptestConfig["models"][number];
 }
 

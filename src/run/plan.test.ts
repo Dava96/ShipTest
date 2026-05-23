@@ -17,12 +17,10 @@ describe("run plan", () => {
 
     const plan = createRunPlan({ config });
 
-    expect(plan.items.map((item) => `${item.benchmark.id}/${item.model.id}`)).toEqual([
-      "invoice/gpt-5.5",
-      "invoice/sonnet",
-      "legacy-auth/gpt-5.5",
-    ]);
-    expect(formatRunPlan(plan)).toContain("Benchmark/model pairs: 3");
+    expect(
+      plan.items.map((item) => `${item.benchmark.id}/${item.baseCommit.slug}/${item.model.id}`),
+    ).toEqual(["invoice/head/gpt-5.5", "invoice/head/sonnet", "legacy-auth/head/gpt-5.5"]);
+    expect(formatRunPlan(plan)).toContain("Benchmark/base-commit/model pairs: 3");
     expect(formatRunPlan(plan)).toContain("Default models: gpt-5.5, sonnet");
     expect(plan.warnings).toContain(
       "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
