@@ -469,11 +469,17 @@ body[data-theme="boring"] .metric-card.pending {
 .metric-value {
   align-self: end;
   display: block;
+  max-width: 100%;
+  min-width: 0;
 }
 .metric-number {
   display: block;
-  font-size: clamp(2.5rem, 4vw, 4rem);
-  line-height: 0.82;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(2rem, 3.4vw, 3.6rem);
+  line-height: 0.9;
   font-weight: 900;
   letter-spacing: -0.075em;
   color: var(--black);

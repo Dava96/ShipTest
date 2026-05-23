@@ -29,6 +29,7 @@ interface ModelCapabilitySummary {
   readonly medianSpeed?: number;
   readonly averageCost?: number;
   readonly failedTools: number;
+  readonly totalTools: number;
   readonly averageFilesChanged: number;
   readonly capabilities: readonly CapabilityScore[];
 }
@@ -130,10 +131,6 @@ function modelCapabilitySummary(
     .map((stats) => stats.averageCost)
     .filter((cost): cost is number => cost !== undefined && cost > 0);
   const minCost = costs.length > 0 ? Math.min(...costs) : undefined;
-  const maxFailedTools = Math.max(
-    ...allStats.map((stats) => stats.failedTools / Math.max(stats.attempts, 1)),
-    0,
-  );
   const maxFilesChanged = Math.max(...allStats.map((stats) => stats.averageFilesChanged), 0);
   return {
     ...modelStats,
@@ -182,20 +179,16 @@ function modelCapabilitySummary(
       {
         id: "tools",
         label: "Tool reliability",
-        value:
-          maxFailedTools <= 0
-            ? 100
-            : 100 -
-              (modelStats.failedTools / Math.max(modelStats.attempts, 1) / maxFailedTools) * 100,
-        detail: `${modelStats.failedTools} failed tool calls`,
+        value: modelStats.totalTools <= 0 ? 0 : toolReliabilityPercent(modelStats),
+        detail:
+          modelStats.totalTools <= 0
+            ? "no tool calls observed"
+            : `${modelStats.totalTools - modelStats.failedTools}/${modelStats.totalTools} tool calls succeeded`,
       },
       {
         id: "focus",
         label: "Patch focus",
-        value:
-          maxFilesChanged <= 0
-            ? 100
-            : 100 - (modelStats.averageFilesChanged / maxFilesChanged) * 100,
+        value: patchFocusScore(modelStats.averageFilesChanged, maxFilesChanged),
         detail: `${formatNumber(modelStats.averageFilesChanged, 1)} files changed per attempt`,
       },
     ].map((score) => ({ ...score, value: clampScore(score.value) })),
@@ -205,31 +198,50 @@ function modelCapabilitySummary(
 function aggregateModelStats(
   attempts: readonly AttemptReport[],
 ): Omit<ModelCapabilitySummary, "capabilities"> {
-  const scores = attempts
+  const completedAttempts = attempts.filter((attempt) => attempt.status === "completed");
+  const scores = completedAttempts
     .map((attempt) => attempt.evaluation?.score)
     .filter((score): score is number => score !== undefined);
-  const speeds = attempts
+  const speeds = completedAttempts
     .map(outputTokensPerSecond)
     .filter((speed): speed is number => speed !== undefined);
   const costs = attempts
     .map((attempt) => attempt.agent.telemetry.usage.estimated_cost_usd?.total)
     .filter((cost): cost is number => cost !== undefined);
-  const filesChanged = attempts.map((attempt) => attempt.submission?.changed_files.length ?? 0);
   const averageScore = average(scores);
   const medianSpeed = median(speeds);
   const averageCost = average(costs);
   return {
     attempts: attempts.length,
-    passed: attempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
+    passed: completedAttempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
     ...(averageScore === undefined ? {} : { averageScore }),
     ...(medianSpeed === undefined ? {} : { medianSpeed }),
     ...(averageCost === undefined ? {} : { averageCost }),
-    failedTools: attempts.reduce(
+    failedTools: completedAttempts.reduce(
       (sum, attempt) => sum + (attempt.tool_usage?.summary.failed_tool_calls ?? 0),
       0,
     ),
-    averageFilesChanged: average(filesChanged) ?? 0,
+    totalTools: completedAttempts.reduce(
+      (sum, attempt) => sum + (attempt.tool_usage?.summary.tool_calls ?? 0),
+      0,
+    ),
+    averageFilesChanged:
+      average(completedAttempts.map((attempt) => attempt.submission?.changed_files.length ?? 0)) ??
+      0,
   };
+}
+
+function toolReliabilityPercent(
+  modelStats: Pick<ModelCapabilitySummary, "failedTools" | "totalTools">,
+): number {
+  if (modelStats.totalTools <= 0) return 0;
+  return ((modelStats.totalTools - modelStats.failedTools) / modelStats.totalTools) * 100;
+}
+
+function patchFocusScore(averageFilesChanged: number, maxFilesChanged: number): number {
+  if (averageFilesChanged <= 0 || maxFilesChanged <= 0) return 0;
+  if (maxFilesChanged <= 1) return 100;
+  return 100 - ((averageFilesChanged - 1) / (maxFilesChanged - 1)) * 100;
 }
 
 function renderRadarChart(capabilities: readonly CapabilityScore[]): string {
@@ -266,8 +278,15 @@ function renderCapabilityCard(score: CapabilityScore): string {
 
 function renderModelBenchmarkRow(attempt: AttemptReport): string {
   const failedTools = attempt.tool_usage?.summary.failed_tool_calls ?? 0;
-  const signals = attempt.agent.signals.length + (attempt.evaluation?.signals.length ?? 0);
-  return `<tr><td>${escapeHtml(attempt.benchmark_id)}</td><td>${statusBadge(attempt.evaluation?.verdict ?? attempt.status)}</td><td>${attempt.evaluation?.score ?? ""}</td><td>${attempt.submission?.changed_files.length ?? 0}</td><td>${failedTools}</td><td>${signals}</td><td>${formatDuration(attempt.timings_ms?.total_ms)}</td><td><a class="artifact-row-link" href="benchmark-${escapeAttribute(slugify(attempt.benchmark_id))}.html">details</a></td></tr>`;
+  const signals =
+    attempt.agent.signals.length +
+    (attempt.evaluation?.signals.length ?? 0) +
+    (attempt.quality_signals?.length ?? 0);
+  const status =
+    attempt.status === "completed" && attempt.evaluation
+      ? attempt.evaluation.verdict
+      : attempt.status;
+  return `<tr><td>${escapeHtml(attempt.benchmark_id)}</td><td>${statusBadge(status)}</td><td>${attempt.status === "completed" ? (attempt.evaluation?.score ?? "") : ""}</td><td>${attempt.submission?.changed_files.length ?? 0}</td><td>${failedTools}</td><td>${signals}</td><td>${formatDuration(attempt.timings_ms?.total_ms)}</td><td><a class="artifact-row-link" href="benchmark-${escapeAttribute(slugify(attempt.benchmark_id))}.html">details</a></td></tr>`;
 }
 
 function radarPoint(

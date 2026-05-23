@@ -23,6 +23,7 @@ interface ModelOverview {
   readonly medianSpeed?: number;
   readonly averageCost?: number;
   readonly failedTools: number;
+  readonly totalTools: number;
   readonly averageFilesChanged: number;
   readonly capabilities: readonly number[];
 }
@@ -207,10 +208,6 @@ function modelOverviews(attempts: readonly AttemptReport[]): ModelOverview[] {
     .map((model) => model.averageCost)
     .filter((cost): cost is number => cost !== undefined && cost > 0);
   const minCost = costs.length > 0 ? Math.min(...costs) : undefined;
-  const maxFailedToolsPerAttempt = Math.max(
-    ...base.map((model) => model.failedTools / Math.max(model.attempts, 1)),
-    0,
-  );
   const maxFiles = Math.max(...base.map((model) => model.averageFilesChanged), 0);
   return base
     .map((model) => ({
@@ -228,13 +225,8 @@ function modelOverviews(attempts: readonly AttemptReport[]): ModelOverview[] {
             ? 0
             : (minCost / model.averageCost) * 100,
         ),
-        clamp(
-          maxFailedToolsPerAttempt <= 0
-            ? 100
-            : 100 -
-                (model.failedTools / Math.max(model.attempts, 1) / maxFailedToolsPerAttempt) * 100,
-        ),
-        clamp(maxFiles <= 0 ? 100 : 100 - (model.averageFilesChanged / maxFiles) * 100),
+        clamp(model.totalTools <= 0 ? 0 : toolReliabilityPercent(model)),
+        clamp(patchFocusScore(model.averageFilesChanged, maxFiles)),
       ],
     }))
     .sort((a, b) => (b.averageScore ?? 0) - (a.averageScore ?? 0));
@@ -244,10 +236,11 @@ function aggregateModel(
   modelId: string,
   attempts: readonly AttemptReport[],
 ): Omit<ModelOverview, "capabilities"> {
-  const scores = attempts
+  const completedAttempts = attempts.filter((attempt) => attempt.status === "completed");
+  const scores = completedAttempts
     .map((attempt) => attempt.evaluation?.score)
     .filter((score): score is number => score !== undefined);
-  const speeds = attempts
+  const speeds = completedAttempts
     .map(outputTokensPerSecond)
     .filter((speed): speed is number => speed !== undefined);
   const costs = attempts
@@ -259,23 +252,39 @@ function aggregateModel(
   return {
     modelId,
     attempts: attempts.length,
-    passed: attempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
+    passed: completedAttempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
     passRate:
       attempts.length === 0
         ? 0
-        : (attempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length /
+        : (completedAttempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length /
             attempts.length) *
           100,
     ...(averageScore === undefined ? {} : { averageScore }),
     ...(medianSpeed === undefined ? {} : { medianSpeed }),
     ...(averageCost === undefined ? {} : { averageCost }),
-    failedTools: attempts.reduce(
+    failedTools: completedAttempts.reduce(
       (sum, attempt) => sum + (attempt.tool_usage?.summary.failed_tool_calls ?? 0),
       0,
     ),
+    totalTools: completedAttempts.reduce(
+      (sum, attempt) => sum + (attempt.tool_usage?.summary.tool_calls ?? 0),
+      0,
+    ),
     averageFilesChanged:
-      average(attempts.map((attempt) => attempt.submission?.changed_files.length ?? 0)) ?? 0,
+      average(completedAttempts.map((attempt) => attempt.submission?.changed_files.length ?? 0)) ??
+      0,
   };
+}
+
+function toolReliabilityPercent(model: Pick<ModelOverview, "failedTools" | "totalTools">): number {
+  if (model.totalTools <= 0) return 0;
+  return ((model.totalTools - model.failedTools) / model.totalTools) * 100;
+}
+
+function patchFocusScore(averageFilesChanged: number, maxFiles: number): number {
+  if (averageFilesChanged <= 0 || maxFiles <= 0) return 0;
+  if (maxFiles <= 1) return 100;
+  return 100 - ((averageFilesChanged - 1) / (maxFiles - 1)) * 100;
 }
 
 function outputTokensPerSecond(attempt: AttemptReport): number | undefined {

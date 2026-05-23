@@ -70,14 +70,22 @@ function renderQualityToolbar(summary: QualitySummaryViewModel): string {
 }
 
 function qualityDetailViewModel(attempt: AttemptReport): QualityDetailViewModel {
-  const signals = [...attempt.agent.signals, ...(attempt.evaluation?.signals ?? [])];
+  const signals = [
+    ...(attempt.quality_signals ?? []),
+    ...attempt.agent.signals,
+    ...(attempt.evaluation?.signals ?? []),
+  ];
   const files = attempt.submission?.changed_files ?? [];
   const commands = attempt.evaluation?.commands ?? [];
   const failedTools = attempt.tool_usage?.summary.failed_tool_calls ?? 0;
   const toolCalls = attempt.tool_usage?.summary.tool_calls ?? 0;
   const status =
-    attempt.evaluation?.verdict ?? (attempt.status === "agent_failed" ? "agent_failed" : "not_run");
-  const score = attempt.evaluation?.score;
+    attempt.status === "completed" && attempt.evaluation
+      ? attempt.evaluation.verdict
+      : attempt.status === "agent_failed"
+        ? "agent_failed"
+        : "not_run";
+  const score = attempt.status === "completed" ? attempt.evaluation?.score : undefined;
   const topSignal = signals[0]?.id ?? "none";
   return {
     id: `quality-${slugify(`${attempt.benchmark_id}-${attempt.model.id}-${attempt.attempt}`)}`,

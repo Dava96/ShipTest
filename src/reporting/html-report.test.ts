@@ -122,7 +122,8 @@ describe("HTML report", () => {
     expect(html).toContain("gpt-5.5&amp;test");
     expect(html).toContain("passed");
     expect(html).toContain("Total estimated cost");
-    expect(html).toContain("$0.1235");
+    expect(html).toContain("$0.12");
+    expect(html).toContain('title="$0.1235"');
     expect(html).toContain("benchmarks/invoice/attempts/001/candidate.patch?x=&lt;y&gt;");
     expect(await readFile(path.join(root, "models.html"), "utf8")).toContain(
       "Model capability comparison",
@@ -181,6 +182,13 @@ describe("HTML report", () => {
             auto_retries: [],
           },
         },
+        quality_signals: [
+          {
+            id: "agent_no_token_usage",
+            severity: "error",
+            message: "Agent attempt reported zero token usage.",
+          },
+        ],
         tool_usage: {
           summary: { tool_calls: 1, failed_tool_calls: 0 },
           categories: [],
@@ -234,7 +242,11 @@ describe("HTML report", () => {
     expect(html).toContain("artifact-link-disabled");
     const benchmarkHtml = await readFile(path.join(root, "benchmark-invoice.html"), "utf8");
     expect(benchmarkHtml).toContain("Artifact was not generated");
+    expect(benchmarkHtml).toContain("agent_no_token_usage");
     expect(benchmarkHtml).not.toContain("empty-tool-calls.jsonl");
+    const modelHtml = await readFile(path.join(root, "model-gpt.html"), "utf8");
+    expect(modelHtml).toContain('Tool reliability</span><span class="rank">0/100');
+    expect(modelHtml).toContain('Patch focus</span><span class="rank">0/100');
   });
 });
 

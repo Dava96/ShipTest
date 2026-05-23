@@ -249,6 +249,14 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/run/run.test.ts
 
+  - id: fix-noop-report-metrics-and-cost-display
+    type: implementation
+    base_commit: f5c2ced
+    task: tasks/fix-noop-report-metrics-and-cost-display.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/reporting/html-report.test.ts src/reporting/shared/report-shared.test.ts src/run/run.test.ts
+
   - id: shiptest-smoke
     type: implementation
     base_commit: f5c2ced

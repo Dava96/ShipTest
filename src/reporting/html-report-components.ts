@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatInteger,
   formatNumber,
+  formatPreciseUsd,
   formatStatus,
   formatUsd,
 } from "./shared/format.js";
@@ -50,7 +51,7 @@ export function renderMetricCards(
   return `<section class="metric-grid">
     <div class="metric-card quality"><div class="metric-head"><span class="metric-title">Quality</span><span class="rank">${results.summary.passed} / ${results.summary.agent_runs}</span></div><div class="metric-value"><span class="metric-number green">${passRate}<span class="metric-unit">%</span></span><span class="metric-label">passed evaluation verdicts</span></div></div>
     <div class="metric-card speed"><div class="metric-head"><span class="metric-title">Speed</span><span class="rank">median</span></div><div class="metric-value"><span class="metric-number blue">${medianSpeed === undefined ? "—" : formatNumber(medianSpeed, 1)}</span><span class="metric-label">output tokens per second</span></div></div>
-    <div class="metric-card cost"><div class="metric-head"><span class="metric-title">Total estimated cost</span><span class="rank">total</span></div><div class="metric-value"><span class="metric-number red">${formatUsd(avgCost)}</span><span class="metric-label">estimated provider cost</span></div></div>
+    <div class="metric-card cost"><div class="metric-head"><span class="metric-title">Total estimated cost</span><span class="rank">total</span></div><div class="metric-value"><span class="metric-number red" title="${escapeAttribute(formatPreciseUsd(avgCost))}">${formatUsd(avgCost)}</span><span class="metric-label">estimated provider cost</span></div></div>
     <div class="metric-card tokens"><div class="metric-head"><span class="metric-title">Tokens</span><span class="rank">uncached</span></div><div class="metric-value"><span class="metric-number purple">${formatCompact(results.summary.uncached_tokens)}</span><span class="metric-label">input ${formatCompact(results.summary.input_tokens)} · output ${formatCompact(results.summary.output_tokens)}<br>cache read ${formatCompact(results.summary.cache_read_tokens)} · cache write ${formatCompact(results.summary.cache_write_tokens)} · total ${formatCompact(results.summary.total_tokens)}${cacheReadDominates(results.summary) ? "<br>cache reads dominate total tokens" : ""}</span></div></div>
     <div class="metric-card pending${pendingCount > 0 ? " pending-active" : ""}"><div class="metric-head"><span class="metric-title">Pending</span><span class="rank">${formatStatus(results.status)}</span></div>${pendingCount > 0 ? renderPendingFleet(pendingCount) : '<div class="icon-row">✓ ✓ ✓</div>'}<div class="metric-value"><span class="metric-number">${pendingCount}</span><span class="metric-label">benchmarks awaiting attempts</span></div></div>
   </section>`;
@@ -184,7 +185,7 @@ function riskiestBenchmark(
     .map(([benchmarkId, benchmarkAttempts]) => ({
       benchmarkId,
       failedAttempts: benchmarkAttempts.filter(
-        (attempt) => attempt.evaluation?.verdict !== "passed",
+        (attempt) => attempt.status !== "completed" || attempt.evaluation?.verdict !== "passed",
       ).length,
       failedTools: benchmarkAttempts.reduce(
         (sum, attempt) => sum + (attempt.tool_usage?.summary.failed_tool_calls ?? 0),
@@ -192,7 +193,10 @@ function riskiestBenchmark(
       ),
       signalCount: benchmarkAttempts.reduce(
         (sum, attempt) =>
-          sum + attempt.agent.signals.length + (attempt.evaluation?.signals.length ?? 0),
+          sum +
+          attempt.agent.signals.length +
+          (attempt.evaluation?.signals.length ?? 0) +
+          (attempt.quality_signals?.length ?? 0),
         0,
       ),
     }))
@@ -309,7 +313,9 @@ function modelAggregates(attempts: readonly AttemptReport[]): ModelAggregate[] {
     return {
       modelId,
       attempts: modelAttempts.length,
-      passed: modelAttempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
+      passed: modelAttempts.filter(
+        (attempt) => attempt.status === "completed" && attempt.evaluation?.verdict === "passed",
+      ).length,
       averageQuality: average(qualityScores) ?? 0,
       ...(medianSpeed === undefined ? {} : { medianSpeed }),
       ...(averageCost === undefined ? {} : { averageCost }),
@@ -366,10 +372,13 @@ export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): read
       "signals",
       "Signals",
       "Signals by Model",
-      "Agent + evaluation signals emitted · Lower usually means cleaner",
+      "Quality, agent, and evaluation signals emitted · Lower usually means cleaner",
       "var(--yellow)",
       attempts,
-      (attempt) => attempt.agent.signals.length + (attempt.evaluation?.signals.length ?? 0),
+      (attempt) =>
+        attempt.agent.signals.length +
+        (attempt.evaluation?.signals.length ?? 0) +
+        (attempt.quality_signals?.length ?? 0),
       false,
       (value) => String(Math.round(value)),
     ),
@@ -549,13 +558,20 @@ export function renderQualityBreakdownTable(attempts: readonly AttemptReport[]):
     ],
     attempts.map((attempt) => {
       const failedToolCalls = attempt.tool_usage?.summary.failed_tool_calls ?? 0;
-      const signalCount = attempt.agent.signals.length + (attempt.evaluation?.signals.length ?? 0);
+      const signalCount =
+        attempt.agent.signals.length +
+        (attempt.evaluation?.signals.length ?? 0) +
+        (attempt.quality_signals?.length ?? 0);
       return {
         modelId: attempt.model.id,
         cells: [
           escapeHtml(attempt.model.id),
-          String(attempt.evaluation?.score ?? "—"),
-          statusBadge(attempt.evaluation?.verdict ?? "not_run"),
+          String(attempt.status === "completed" ? (attempt.evaluation?.score ?? "—") : "—"),
+          statusBadge(
+            attempt.status === "completed" && attempt.evaluation
+              ? attempt.evaluation.verdict
+              : "not_run",
+          ),
           statusBadge(attempt.status),
           String(attempt.submission?.changed_files.length ?? 0),
           String(failedToolCalls),
