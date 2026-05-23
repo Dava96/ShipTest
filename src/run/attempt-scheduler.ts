@@ -6,7 +6,7 @@ export interface AttemptJob {
 }
 
 interface QueuedBenchmark {
-  readonly benchmarkId: string;
+  readonly groupId: string;
   readonly items: AttemptJob[];
   running: number;
   lastScheduledOrder: number;
@@ -26,14 +26,15 @@ export class BenchmarkFairAttemptScheduler {
   private scheduleOrder = 0;
 
   constructor(items: readonly AttemptJob[]) {
-    const byBenchmark = new Map<string, AttemptJob[]>();
+    const byGroup = new Map<string, AttemptJob[]>();
     for (const item of items) {
-      const existing = byBenchmark.get(item.planItem.benchmark.id) ?? [];
+      const groupId = schedulerGroupId(item);
+      const existing = byGroup.get(groupId) ?? [];
       existing.push(item);
-      byBenchmark.set(item.planItem.benchmark.id, existing);
+      byGroup.set(groupId, existing);
     }
-    this.queues = [...byBenchmark.entries()].map(([benchmarkId, benchmarkItems]) => ({
-      benchmarkId,
+    this.queues = [...byGroup.entries()].map(([groupId, benchmarkItems]) => ({
+      groupId,
       items: [...benchmarkItems],
       running: 0,
       lastScheduledOrder: -1,
@@ -47,7 +48,7 @@ export class BenchmarkFairAttemptScheduler {
         (left, right) =>
           left.running - right.running ||
           left.lastScheduledOrder - right.lastScheduledOrder ||
-          left.benchmarkId.localeCompare(right.benchmarkId),
+          left.groupId.localeCompare(right.groupId),
       )[0];
     if (!queue) return undefined;
 
@@ -60,12 +61,14 @@ export class BenchmarkFairAttemptScheduler {
   }
 
   complete(item: AttemptJob): void {
-    const queue = this.queues.find(
-      (candidate) => candidate.benchmarkId === item.planItem.benchmark.id,
-    );
+    const queue = this.queues.find((candidate) => candidate.groupId === schedulerGroupId(item));
     if (!queue) return;
     queue.running = Math.max(0, queue.running - 1);
   }
+}
+
+function schedulerGroupId(item: AttemptJob): string {
+  return `${item.planItem.benchmark.id}\0${item.planItem.baseCommit.slug}`;
 }
 
 export async function runBenchmarkFairQueue<T>(options: {

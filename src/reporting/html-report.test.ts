@@ -16,6 +16,7 @@ describe("HTML report", () => {
         schema_version: 1,
         run_id: "run-<1>",
         benchmark_id: "invoice<script>",
+        base_commit: { commit: "abc123", label: "abc123", slug: "abc123", index: 1 },
         benchmark_type: "implementation",
         task: ".shiptest/tasks/invoice.md",
         attempt: 1,
@@ -105,7 +106,18 @@ describe("HTML report", () => {
           estimated_cost_usd: 0.123456,
         },
         benchmark_results: [
-          { benchmark_id: "invoice", attempts: ["benchmarks/invoice/attempts/001/attempt.json"] },
+          {
+            benchmark_id: "invoice",
+            base_commits: [
+              {
+                commit: "abc123",
+                label: "abc123",
+                slug: "abc123",
+                index: 1,
+                attempts: ["benchmarks/invoice/attempts/001/attempt.json"],
+              },
+            ],
+          },
         ],
         artifacts: { report_html: "report.html", events_jsonl: "events.jsonl" },
       }),
@@ -145,6 +157,7 @@ describe("HTML report", () => {
         schema_version: 1,
         run_id: "run-1",
         benchmark_id: "invoice",
+        base_commit: { commit: "abc123", label: "abc123", slug: "abc123", index: 1 },
         benchmark_type: "implementation",
         task: "task.md",
         attempt: 1,
@@ -226,7 +239,20 @@ describe("HTML report", () => {
           cache_write_tokens: 0,
           uncached_tokens: 0,
         },
-        benchmark_results: [{ benchmark_id: "invoice", attempts: ["attempt.json"] }],
+        benchmark_results: [
+          {
+            benchmark_id: "invoice",
+            base_commits: [
+              {
+                commit: "abc123",
+                label: "abc123",
+                slug: "abc123",
+                index: 1,
+                attempts: ["attempt.json"],
+              },
+            ],
+          },
+        ],
         artifacts: { report_html: "report.html", events_jsonl: "events.jsonl" },
       }),
       "utf8",

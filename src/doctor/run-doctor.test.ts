@@ -68,11 +68,18 @@ describe("runDoctor", () => {
       await readFile(path.join(outputRootPath, "doctor-result.json"), "utf8"),
     ) as { readonly benchmark_results: readonly { readonly doctor_result: string }[] };
     expect(aggregate.benchmark_results[0]?.doctor_result).toBe(
-      "benchmarks/doctor-smoke/doctor-result.json",
+      "benchmarks/doctor-smoke/base-commits/head/doctor-result.json",
     );
     await expect(
       readFile(
-        path.join(outputRootPath, "benchmarks", "doctor-smoke", "doctor-result.json"),
+        path.join(
+          outputRootPath,
+          "benchmarks",
+          "doctor-smoke",
+          "base-commits",
+          "head",
+          "doctor-result.json",
+        ),
         "utf8",
       ),
     ).resolves.toContain("DOCTOR_ADVISORY_VALIDATION_FAILED");
@@ -179,11 +186,11 @@ describe("runDoctor", () => {
     expect(aggregate.benchmark_results).toEqual([
       expect.objectContaining({
         benchmark_id: "doctor-smoke",
-        doctor_result: "benchmarks/doctor-smoke/doctor-result.json",
+        doctor_result: "benchmarks/doctor-smoke/base-commits/head/doctor-result.json",
       }),
       expect.objectContaining({
         benchmark_id: "doctor-failing",
-        doctor_result: "benchmarks/doctor-failing/doctor-result.json",
+        doctor_result: "benchmarks/doctor-failing/base-commits/missing-commit/doctor-result.json",
       }),
     ]);
     await expect(
@@ -194,6 +201,8 @@ describe("runDoctor", () => {
           "doctor",
           "benchmarks",
           "doctor-failing",
+          "base-commits",
+          "missing-commit",
           "doctor-result.json",
         ),
         "utf8",
@@ -224,7 +233,7 @@ async function createConfig(
     benchmarks: [
       benchmark("doctor-smoke"),
       ...(options.secondInvalidBase
-        ? [benchmark("doctor-failing", { base_commit: "missing-commit" })]
+        ? [benchmark("doctor-failing", { base_commits: ["missing-commit"] })]
         : []),
     ],
     files: {

@@ -102,7 +102,8 @@ defaults:
 benchmarks:
   - id: invoice-rounding
     type: replay_change
-    base_commit: abc123
+    base_commits:
+      - abc123
     task: tasks/invoice.md
     models:
       - ${options.benchmarkModel ?? "sonnet-4.5"}

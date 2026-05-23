@@ -202,7 +202,7 @@ function riskiestBenchmark(
     }))
     .filter((risk) => risk.failedAttempts > 0 || risk.failedTools > 0 || risk.signalCount > 0);
   const pendingRisks = results.benchmark_results
-    .filter((benchmark) => benchmark.attempts.length === 0)
+    .filter((benchmark) => benchmarkAttemptCount(benchmark) === 0)
     .map((benchmark) => ({
       benchmarkId: benchmark.benchmark_id,
       failedAttempts: 0,
@@ -678,15 +678,20 @@ function attemptDomId(attempt: AttemptReport): string {
 export function renderBenchmarkRows(results: RunResults): string {
   return results.benchmark_results
     .map((benchmark) => {
-      const pending = benchmark.attempts.length === 0;
+      const attemptCount = benchmarkAttemptCount(benchmark);
+      const pending = attemptCount === 0;
       return `<tr${pending ? ` class="pending-row"` : ""}>
 <td><a href="${escapeAttribute(benchmarkDetailReportPath(benchmark.benchmark_id))}">${escapeHtml(benchmark.benchmark_id)}</a></td>
 <td>${pending ? statusBadge(results.status === "running" ? "pending" : "not_run") : statusBadge("completed")}</td>
-<td>${pending ? `<span class="skeleton"></span>` : benchmark.attempts.length}</td>
+<td>${pending ? `<span class="skeleton"></span>` : attemptCount}</td>
 <td>${pending && results.status === "running" ? `<span class="skeleton"></span>` : formatDuration(benchmark.duration_ms)}</td>
 </tr>`;
     })
     .join("\n");
+}
+
+function benchmarkAttemptCount(benchmark: RunResults["benchmark_results"][number]): number {
+  return benchmark.base_commits.reduce((sum, baseCommit) => sum + baseCommit.attempts.length, 0);
 }
 
 function renderToolUsageCell(attempt: AttemptReport): string {

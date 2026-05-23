@@ -38,15 +38,17 @@ export function createRunPlan(options: {
       );
     }
     const benchmarkModelIds = benchmark.models ?? options.config.models.map((model) => model.id);
-    for (const modelId of benchmarkModelIds) {
-      if (modelFilter.size > 0 && !modelFilter.has(modelId)) {
-        continue;
+    for (const baseCommit of benchmark.base_commits) {
+      for (const modelId of benchmarkModelIds) {
+        if (modelFilter.size > 0 && !modelFilter.has(modelId)) {
+          continue;
+        }
+        const model = modelById.get(modelId);
+        if (!model) {
+          throw new Error(`Unknown model id for benchmark '${benchmark.id}': ${modelId}`);
+        }
+        items.push({ benchmark, baseCommit, model });
       }
-      const model = modelById.get(modelId);
-      if (!model) {
-        throw new Error(`Unknown model id for benchmark '${benchmark.id}': ${modelId}`);
-      }
-      items.push({ benchmark, model });
     }
   }
 
@@ -67,9 +69,10 @@ export function formatRunPlan(plan: RunPlan): string {
   for (const item of plan.items) {
     const configuredModels = item.benchmark.models;
     const modelSuffix = configuredModels ? `  models: ${formatList(configuredModels)}` : "";
+    const baseCommitSuffix = `  base commits: ${formatList(item.benchmark.base_commits.map((baseCommit) => baseCommit.label))}`;
     benchmarkLines.set(
       item.benchmark.id,
-      `- ${item.benchmark.id}  ${item.benchmark.task}${modelSuffix}`,
+      `- ${item.benchmark.id}  ${item.benchmark.task}${modelSuffix}${baseCommitSuffix}`,
     );
   }
 
@@ -83,7 +86,7 @@ export function formatRunPlan(plan: RunPlan): string {
     ...[...benchmarkLines.values()].slice(0, 20),
     ...(benchmarkLines.size > 20 ? [`... (+${benchmarkLines.size - 20} more)`] : []),
     "",
-    `Benchmark/model pairs: ${plan.items.length}`,
+    `Benchmark/base-commit/model pairs: ${plan.items.length}`,
   ].join("\n");
 }
 

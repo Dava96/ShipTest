@@ -16,6 +16,7 @@ import type {
   AttemptQualitySignal,
   AttemptReport,
   AttemptStatus,
+  BenchmarkBaseCommit,
   RunResults,
   RunStatus,
   ShiptestRunOptions,
@@ -79,14 +80,16 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         readonly workspaceKey: string;
       }
     >();
-    const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
-    for (const benchmarkId of benchmarkIds) {
-      options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
+    const benchmarkSelections = uniqueBenchmarkBaseCommitSelections(plan.items);
+    for (const selection of benchmarkSelections) {
+      options.onProgress?.(
+        `[${selection.benchmarkId}@${selection.baseCommit.label}] Preparing baseline.`,
+      );
     }
     const doctorResult = await runDoctor(context, {
       outputRootPath: layout.doctorOutputPath,
       cacheRootPath: layout.cacheRootPath,
-      benchmarkIds,
+      benchmarkSelections,
       snapshotSource,
       onProgress: (event) => {
         if (event.phase === "cache" && event.benchmark_id) {
@@ -94,23 +97,29 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         }
       },
     });
-    for (const benchmarkId of benchmarkIds) {
+    for (const selection of benchmarkSelections) {
       const benchmarkDoctorResult = doctorResult.benchmark_results.find(
-        (result) => result.benchmark_id === benchmarkId,
+        (result) =>
+          result.benchmark_id === selection.benchmarkId &&
+          result.base_commit?.slug === selection.baseCommit.slug,
       );
       if (!benchmarkDoctorResult?.ok) {
-        throw new Error(`Prepared baseline failed for benchmark '${benchmarkId}'.`);
+        throw new Error(
+          `Prepared baseline failed for benchmark '${selection.benchmarkId}' at base commit '${selection.baseCommit.label}'.`,
+        );
       }
       if (!benchmarkDoctorResult.prepared_baseline_path) {
-        throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
+        throw new Error(
+          `Prepared baseline path is missing for benchmark '${selection.benchmarkId}' at base commit '${selection.baseCommit.label}'.`,
+        );
       }
-      preparedBaselines.set(benchmarkId, {
+      preparedBaselines.set(preparedBaselineKey(selection.benchmarkId, selection.baseCommit.slug), {
         path: benchmarkDoctorResult.prepared_baseline_path,
         baselineCommit:
           benchmarkDoctorResult.prepared_baseline_metadata?.clean_git_repo.baseline_commit,
         workspaceKey:
           benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
-          sanitizePathSegment(benchmarkId),
+          sanitizePathSegment(`${selection.benchmarkId}-${selection.baseCommit.slug}`),
       });
     }
     await writeCurrentArtifacts("running");
@@ -137,7 +146,9 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
           configDir: context.configDir,
           repositoryEnvironment: context.config.repository_environment,
           toolUsage: context.config.tool_usage,
-          preparedBaseline: preparedBaselines.get(job.planItem.benchmark.id),
+          preparedBaseline: preparedBaselines.get(
+            preparedBaselineKey(job.planItem.benchmark.id, job.planItem.baseCommit.slug),
+          ),
           piExecutable: options.piExecutable ?? "pi",
           piExecutableArgs: options.piExecutableArgs ?? [],
           eventsPath: layout.eventsPath,
@@ -177,6 +188,7 @@ function createResettableWorkspaceLayout(options: {
   readonly workspaceRootPath: string;
   readonly workspaceKey: string;
   readonly benchmarkId: string;
+  readonly baseCommitSlug: string;
   readonly modelId: string;
   readonly attempt: number;
 }): { readonly agentWorkspacePath: string; readonly evaluationWorkspacePath: string } {
@@ -184,6 +196,7 @@ function createResettableWorkspaceLayout(options: {
     options.workspaceRootPath,
     sanitizePathSegment(options.workspaceKey),
     sanitizePathSegment(options.benchmarkId),
+    sanitizePathSegment(options.baseCommitSlug),
     sanitizePathSegment(options.modelId),
     `attempt-${String(options.attempt).padStart(3, "0")}`,
   );
@@ -197,12 +210,28 @@ function sanitizePathSegment(value: string): string {
   return value.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function uniqueBenchmarkBaseCommitSelections(items: readonly AttemptJob["planItem"][]) {
+  const byKey = new Map<
+    string,
+    { readonly benchmarkId: string; readonly baseCommit: AttemptJob["planItem"]["baseCommit"] }
+  >();
+  for (const item of items) {
+    const key = preparedBaselineKey(item.benchmark.id, item.baseCommit.slug);
+    byKey.set(key, { benchmarkId: item.benchmark.id, baseCommit: item.baseCommit });
+  }
+  return [...byKey.values()];
+}
+
+function preparedBaselineKey(benchmarkId: string, baseCommitSlug: string): string {
+  return `${benchmarkId}\0${baseCommitSlug}`;
+}
+
 function attemptOrderKey(job: AttemptJob): string {
-  return `${job.planItem.benchmark.id}\0${job.planItem.model.id}\0${job.attempt}`;
+  return `${job.planItem.benchmark.id}\0${job.planItem.baseCommit.slug}\0${job.planItem.model.id}\0${job.attempt}`;
 }
 
 function attemptReportOrderKey(attempt: AttemptReport): string {
-  return `${attempt.benchmark_id}\0${attempt.model.id}\0${attempt.attempt}`;
+  return `${attempt.benchmark_id}\0${attempt.base_commit.slug}\0${attempt.model.id}\0${attempt.attempt}`;
 }
 
 function sortedAttempts(
@@ -244,6 +273,7 @@ async function runAttemptJob(options: {
   const attemptLayout = await createAttemptLayout({
     runRootPath: options.runRootPath,
     benchmarkId: item.benchmark.id,
+    baseCommitSlug: item.baseCommit.slug,
     modelId: item.model.id,
     attempt: job.attempt,
   });
@@ -254,6 +284,7 @@ async function runAttemptJob(options: {
     workspaceRootPath: options.workspaceRootPath,
     workspaceKey: options.preparedBaseline.workspaceKey,
     benchmarkId: item.benchmark.id,
+    baseCommitSlug: item.baseCommit.slug,
     modelId: item.model.id,
     attempt: job.attempt,
   });
@@ -328,6 +359,7 @@ async function runAttemptJob(options: {
     attemptLayout,
     attempt: job.attempt,
     benchmark: item.benchmark,
+    baseCommit: item.baseCommit,
     model: item.model,
     agentResult,
     qualitySignals,
@@ -357,6 +389,7 @@ function createAttemptReport(options: {
   };
   readonly attempt: number;
   readonly benchmark: Parameters<typeof runPiJsonAgentAttempt>[0]["benchmark"];
+  readonly baseCommit: BenchmarkBaseCommit;
   readonly model: Parameters<typeof runPiJsonAgentAttempt>[0]["model"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
   readonly qualitySignals: readonly AttemptQualitySignal[];
@@ -388,6 +421,7 @@ function createAttemptReport(options: {
     schema_version: 1,
     run_id: options.runId,
     benchmark_id: options.benchmark.id,
+    base_commit: options.baseCommit,
     benchmark_type: options.benchmark.type,
     task: options.benchmark.task,
     attempt: options.attempt,
@@ -578,10 +612,10 @@ function createRunResults(options: {
   readonly durationMs: number;
   readonly statusOverride?: RunStatus;
 }): RunResults {
-  const byBenchmark = new Map<string, string[]>();
+  const byBenchmark = new Map<string, AttemptReport[]>();
   for (const attempt of options.attempts) {
     const list = byBenchmark.get(attempt.benchmark_id) ?? [];
-    list.push(attempt.artifacts.attempt_json ?? "");
+    list.push(attempt);
     byBenchmark.set(attempt.benchmark_id, list);
   }
   const estimatedCost = sumOptional(
@@ -628,16 +662,45 @@ function createRunResults(options: {
     },
     benchmark_results: [...byBenchmark.entries()].map(([benchmark_id, attempts]) => ({
       benchmark_id,
-      attempts,
-      duration_ms: options.attempts
-        .filter((attempt) => attempt.benchmark_id === benchmark_id)
-        .reduce((total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0), 0),
+      base_commits: baseCommitResults(attempts),
+      duration_ms: attempts.reduce(
+        (total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0),
+        0,
+      ),
     })),
     artifacts: {
       report_html: toRunRelativePath(options.runRootPath, options.reportPath),
       events_jsonl: toRunRelativePath(options.runRootPath, options.eventsPath),
     },
   };
+}
+
+function baseCommitResults(
+  attempts: readonly AttemptReport[],
+): RunResults["benchmark_results"][number]["base_commits"] {
+  const byBaseCommit = new Map<string, AttemptReport[]>();
+  for (const attempt of attempts) {
+    const list = byBaseCommit.get(attempt.base_commit.slug) ?? [];
+    list.push(attempt);
+    byBaseCommit.set(attempt.base_commit.slug, list);
+  }
+  return [...byBaseCommit.values()].map((baseCommitAttempts) => {
+    const baseCommit = baseCommitAttempts[0]?.base_commit;
+    if (!baseCommit) {
+      throw new Error("Cannot create base commit result without attempts.");
+    }
+    return {
+      commit: baseCommit.commit,
+      label: baseCommit.label,
+      slug: baseCommit.slug,
+      index: baseCommit.index,
+      attempts: baseCommitAttempts.map((attempt) => attempt.artifacts.attempt_json ?? ""),
+      duration_ms: baseCommitAttempts.reduce(
+        (total, attempt) => total + (attempt.timings_ms?.total_ms ?? 0),
+        0,
+      ),
+    };
+  });
 }
 
 function sumUsage(

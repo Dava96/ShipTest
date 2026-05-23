@@ -45,7 +45,7 @@ describe("runShiptest", () => {
 
     const attemptPath = path.join(
       fixture.runRootPath,
-      result.benchmark_results[0]?.attempts[0] ?? "missing",
+      result.benchmark_results[0]?.base_commits[0]?.attempts[0] ?? "missing",
     );
     const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
       readonly submission: { readonly changed_files: readonly string[] };
@@ -53,7 +53,7 @@ describe("runShiptest", () => {
     };
     expect(attempt.submission.changed_files).toEqual(["src/generated.txt"]);
     expect(attempt.artifacts.candidate_patch).toBe(
-      "benchmarks/bench/models/fake/attempts/001/candidate.patch",
+      "benchmarks/bench/base-commits/head/models/fake/attempts/001/candidate.patch",
     );
     expect(await readFile(path.join(fixture.runRootPath, "events.jsonl"), "utf8")).toContain(
       "run_completed",
@@ -93,22 +93,38 @@ describe("runShiptest", () => {
     expect(doctorIndex.benchmark_results).toEqual([
       expect.objectContaining({
         benchmark_id: "bench",
-        doctor_result: "benchmarks/bench/doctor-result.json",
+        doctor_result: "benchmarks/bench/base-commits/head/doctor-result.json",
       }),
       expect.objectContaining({
         benchmark_id: "bench-two",
-        doctor_result: "benchmarks/bench-two/doctor-result.json",
+        doctor_result: "benchmarks/bench-two/base-commits/head/doctor-result.json",
       }),
     ]);
     await expect(
       readFile(
-        path.join(fixture.runRootPath, "doctor", "benchmarks", "bench", "doctor-result.json"),
+        path.join(
+          fixture.runRootPath,
+          "doctor",
+          "benchmarks",
+          "bench",
+          "base-commits",
+          "head",
+          "doctor-result.json",
+        ),
         "utf8",
       ),
     ).resolves.toContain("bench");
     await expect(
       readFile(
-        path.join(fixture.runRootPath, "doctor", "benchmarks", "bench-two", "doctor-result.json"),
+        path.join(
+          fixture.runRootPath,
+          "doctor",
+          "benchmarks",
+          "bench-two",
+          "base-commits",
+          "head",
+          "doctor-result.json",
+        ),
         "utf8",
       ),
     ).resolves.toContain("bench-two");
@@ -144,9 +160,9 @@ describe("runShiptest", () => {
     });
 
     expect(result.summary.agent_runs).toBe(2);
-    expect(result.benchmark_results[0]?.attempts).toEqual([
-      "benchmarks/bench/models/fake/attempts/001/attempt.json",
-      "benchmarks/bench/models/fake/attempts/002/attempt.json",
+    expect(result.benchmark_results[0]?.base_commits[0]?.attempts).toEqual([
+      "benchmarks/bench/base-commits/head/models/fake/attempts/001/attempt.json",
+      "benchmarks/bench/base-commits/head/models/fake/attempts/002/attempt.json",
     ]);
   });
 
@@ -163,7 +179,7 @@ describe("runShiptest", () => {
     expect(result.status).toBe("completed_with_issues");
     const attemptPath = path.join(
       fixture.runRootPath,
-      result.benchmark_results[0]?.attempts[0] ?? "missing",
+      result.benchmark_results[0]?.base_commits[0]?.attempts[0] ?? "missing",
     );
     const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
       readonly status: string;
@@ -187,7 +203,7 @@ describe("runShiptest", () => {
 
     const attemptPath = path.join(
       fixture.runRootPath,
-      result.benchmark_results[0]?.attempts[0] ?? "missing",
+      result.benchmark_results[0]?.base_commits[0]?.attempts[0] ?? "missing",
     );
     const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
       readonly status: string;
@@ -215,7 +231,7 @@ describe("runShiptest", () => {
     expect(result.status).toBe("completed");
     const attemptPath = path.join(
       fixture.runRootPath,
-      result.benchmark_results[0]?.attempts[0] ?? "missing",
+      result.benchmark_results[0]?.base_commits[0]?.attempts[0] ?? "missing",
     );
     const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
       readonly status: string;
@@ -241,7 +257,7 @@ describe("runShiptest", () => {
     expect(result.summary.agent_failed).toBe(1);
     const attemptPath = path.join(
       fixture.runRootPath,
-      result.benchmark_results[0]?.attempts[0] ?? "missing",
+      result.benchmark_results[0]?.base_commits[0]?.attempts[0] ?? "missing",
     );
     const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
       readonly status: string;
