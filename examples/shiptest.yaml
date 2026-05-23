@@ -277,6 +277,22 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/reporting/html-report.test.ts src/reporting/shared/report-shared.test.ts src/run/run.test.ts
 
+  - id: add-multi-base-commit-benchmarks
+    type: implementation
+    base_commits:
+      - commit: 37a1dff
+        label: before-base-commits
+      - commit: a742516
+        label: after-config
+      - commit: a4bcf5a
+        label: after-plan-expansion
+      - commit: 33137c8
+        label: after-layout
+    task: tasks/add-multi-base-commit-benchmarks.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/config/config.test.ts src/run/plan.test.ts src/run/attempt-scheduler.test.ts src/run/run-layout.test.ts src/run/run.test.ts src/doctor/run-doctor.test.ts src/reporting/html-report.test.ts
+
   - id: shiptest-smoke
     type: implementation
     base_commits:
