@@ -224,7 +224,7 @@ async function createConfig(
     benchmarks: [
       benchmark("doctor-smoke"),
       ...(options.secondInvalidBase
-        ? [benchmark("doctor-failing", { base_commit: "missing-commit" })]
+        ? [benchmark("doctor-failing", { base_commits: ["missing-commit"] })]
         : []),
     ],
     files: {

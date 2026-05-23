@@ -290,11 +290,31 @@ export const DefaultsSchema = z
   })
   .strict();
 
+const BaseCommitObjectSchema = z
+  .object({
+    commit: nonEmptyString,
+    label: nonEmptyString.optional(),
+  })
+  .strict();
+
+const BaseCommitInputSchema = z.union([nonEmptyString, BaseCommitObjectSchema]);
+
+function normalizeBaseCommit(input: z.infer<typeof BaseCommitInputSchema>, index: number) {
+  const commit = typeof input === "string" ? input : input.commit;
+  const label = typeof input === "string" ? commit : (input.label ?? input.commit);
+  return {
+    commit,
+    label,
+    slug: slugifyBaseCommit(label),
+    index: index + 1,
+  };
+}
+
 const BenchmarkInputSchema = z
   .object({
     id,
     type: z.enum([BenchmarkType.ReplayChange, BenchmarkType.Implementation]),
-    base_commit: nonEmptyString.optional(),
+    base_commits: z.array(BaseCommitInputSchema).min(1),
     task: nonEmptyString,
     attempts: positiveInteger.max(SchemaLimits.BenchmarkAttemptsMax).default(1),
     models: z.array(id).optional(),
@@ -332,16 +352,24 @@ export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) =
     ...config.project,
     repo: config.project.repo ?? ".",
   },
-  benchmarks: config.benchmarks.map((benchmark) => ({
-    ...benchmark,
-    models: benchmark.models ?? config.defaults.run.models,
-    limits: LimitsSchema.parse({ ...config.defaults.limits, ...benchmark.limits }),
-    agent_context: AgentContextSchema.parse({
-      ...config.defaults.agent_context,
-      ...benchmark.agent_context,
-    }),
-    evaluation: EvaluationSchema.parse({ ...config.defaults.evaluation, ...benchmark.evaluation }),
-  })),
+  benchmarks: config.benchmarks.map((benchmark) => {
+    const baseCommits = benchmark.base_commits.map(normalizeBaseCommit);
+    return {
+      ...benchmark,
+      base_commits: baseCommits,
+      base_commit: baseCommits[0]?.commit,
+      models: benchmark.models ?? config.defaults.run.models,
+      limits: LimitsSchema.parse({ ...config.defaults.limits, ...benchmark.limits }),
+      agent_context: AgentContextSchema.parse({
+        ...config.defaults.agent_context,
+        ...benchmark.agent_context,
+      }),
+      evaluation: EvaluationSchema.parse({
+        ...config.defaults.evaluation,
+        ...benchmark.evaluation,
+      }),
+    };
+  }),
 })).superRefine((config, context) => {
   addDuplicateIdIssues(config.models, "models", context);
   addDuplicateIdIssues(config.benchmarks, "benchmarks", context);
@@ -368,14 +396,19 @@ export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) =
       }
     }
 
-    if (benchmark.type === BenchmarkType.ReplayChange) {
-      if (!benchmark.base_commit) {
+    const baseCommitSlugs = new Set<string>();
+    for (const [baseCommitIndex, baseCommit] of benchmark.base_commits.entries()) {
+      if (baseCommitSlugs.has(baseCommit.slug)) {
         context.addIssue({
           code: "custom",
-          path: ["benchmarks", benchmarkIndex, "base_commit"],
-          message: "replay_change benchmarks must define base_commit",
+          path: ["benchmarks", benchmarkIndex, "base_commits", baseCommitIndex],
+          message: `Duplicate base commit label/slug: ${baseCommit.label}`,
         });
       }
+      baseCommitSlugs.add(baseCommit.slug);
+    }
+
+    if (benchmark.type === BenchmarkType.ReplayChange) {
       if (
         benchmark.evaluation.hidden_evaluation_files.length === 0 &&
         benchmark.evaluation.hidden_evaluation_directories.length === 0 &&
@@ -391,6 +424,15 @@ export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) =
     }
   }
 });
+
+function slugifyBaseCommit(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-|-$/g, "") || "base-commit"
+  );
+}
 
 function addHiddenPatchPolicyIssue(
   evaluation: {

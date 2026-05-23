@@ -70,7 +70,9 @@ describe("config loading and validation", () => {
         agent_context: {},
         evaluation: { scoring_command: "npm test" },
       },
-      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+      benchmarks: [
+        { id: "bench", type: "implementation", base_commits: ["HEAD"], task: "tasks/task.md" },
+      ],
     });
 
     expect(config.runner).toEqual({ concurrency: 1, model_attempts: 1 });
@@ -192,6 +194,7 @@ describe("config loading and validation", () => {
         {
           id: "invoice",
           type: "implementation",
+          base_commits: ["HEAD"],
           task: "task.md",
           evaluation: { scoring_command: "npm test" },
         },
@@ -294,6 +297,7 @@ describe("config loading and validation", () => {
           {
             id: "invoice",
             type: "implementation",
+            base_commits: ["HEAD"],
             task: "task.md",
             evaluation: { scoring_command: "npm test" },
           },
@@ -426,7 +430,8 @@ defaults:
 benchmarks:
   - id: invoice
     type: replay_change
-    base_commit: abc123
+    base_commits:
+      - abc123
     task: tasks/task.md
 `,
     "utf8",

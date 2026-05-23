@@ -48,6 +48,7 @@ export function benchmark(id = "invoice", overrides: Partial<BenchmarkInput> = {
   return {
     id,
     type: "implementation",
+    base_commits: ["HEAD"],
     task: `tasks/${id}.md`,
     ...overrides,
   };

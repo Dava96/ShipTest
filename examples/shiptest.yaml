@@ -107,7 +107,8 @@ defaults:
 benchmarks:
   - id: optional-project-repo-default
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/optional-project-repo-default.md
     attempts: 1
     evaluation:
@@ -115,7 +116,8 @@ benchmarks:
 
   - id: refactor-test-config-fixture-introduction
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-test-config-fixture-introduction.md
     attempts: 1
     evaluation:
@@ -123,7 +125,8 @@ benchmarks:
 
   - id: refactor-test-config-fixture-runner-adoption
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-test-config-fixture-runner-adoption.md
     attempts: 1
     evaluation:
@@ -131,7 +134,8 @@ benchmarks:
 
   - id: refactor-test-config-fixture-suite-adoption
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-test-config-fixture-suite-adoption.md
     attempts: 1
     evaluation:
@@ -139,7 +143,8 @@ benchmarks:
 
   - id: refactor-run-directory-layout
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-run-directory-layout.md
     attempts: 1
     evaluation:
@@ -147,31 +152,36 @@ benchmarks:
 
   - id: refactor-resettable-workspace-pool
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-resettable-workspace-pool.md
     attempts: 1
 
   - id: refactor-pi-model-availability-precheck
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-pi-model-availability-precheck.md
     attempts: 1
 
   - id: report-total-estimated-cost
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/report-total-estimated-cost.md
     attempts: 1
 
   - id: surface-prepared-baseline-normalization-warning
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/surface-prepared-baseline-normalization-warning.md
     attempts: 1
 
   - id: add-draft-working-tree-run-mode
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/add-draft-working-tree-run-mode.md
     attempts: 1
     evaluation:
@@ -179,7 +189,8 @@ benchmarks:
 
   - id: add-configurable-tool-usage-reporting
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/add-configurable-tool-usage-reporting.md
     attempts: 1
     evaluation:
@@ -187,7 +198,8 @@ benchmarks:
 
   - id: refactor-doctor-per-benchmark-artifacts
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/refactor-doctor-per-benchmark-artifacts.md
     attempts: 1
     evaluation:
@@ -195,7 +207,8 @@ benchmarks:
 
   - id: write-incremental-results-and-report
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/write-incremental-results-and-report.md
     attempts: 1
     evaluation:
@@ -203,7 +216,8 @@ benchmarks:
 
   - id: split-token-budget-and-reporting
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/split-token-budget-and-reporting.md
     attempts: 1
     evaluation:
@@ -211,7 +225,8 @@ benchmarks:
 
   - id: stream-pi-output-with-bounded-parsing
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/stream-pi-output-with-bounded-parsing.md
     attempts: 1
     evaluation:
@@ -219,7 +234,8 @@ benchmarks:
 
   - id: add-config-backed-model-attempt-concurrency-scheduler
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/add-config-backed-model-attempt-concurrency-scheduler.md
     attempts: 1
     evaluation:
@@ -227,7 +243,8 @@ benchmarks:
 
   - id: fail-zero-token-agent-attempts
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/fail-zero-token-agent-attempts.md
     attempts: 1
     evaluation:
@@ -235,7 +252,8 @@ benchmarks:
 
   - id: require-file-changes-for-code-benchmarks
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/require-file-changes-for-code-benchmarks.md
     attempts: 1
     evaluation:
@@ -243,7 +261,8 @@ benchmarks:
 
   - id: skip-evaluation-for-invalid-agent-submissions
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/skip-evaluation-for-invalid-agent-submissions.md
     attempts: 1
     evaluation:
@@ -251,7 +270,8 @@ benchmarks:
 
   - id: fix-noop-report-metrics-and-cost-display
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/fix-noop-report-metrics-and-cost-display.md
     attempts: 1
     evaluation:
@@ -259,6 +279,7 @@ benchmarks:
 
   - id: shiptest-smoke
     type: implementation
-    base_commit: f5c2ced
+    base_commits:
+      - f5c2ced
     task: tasks/shiptest-smoke.md
     attempts: 1
