@@ -16,6 +16,21 @@ export type AttemptStatus =
   | "agent_failed"
   | "evaluation_failed";
 
+export type AttemptQualitySignalId =
+  | "agent_no_token_usage"
+  | "agent_reported_errors"
+  | "agent_reported_errors_without_usage"
+  | "empty_submission_patch"
+  | "required_file_changes_missing";
+
+export type AttemptQualitySignalSeverity = "warning" | "error";
+
+export interface AttemptQualitySignal {
+  readonly id: AttemptQualitySignalId;
+  readonly severity: AttemptQualitySignalSeverity;
+  readonly message: string;
+}
+
 export interface RunPlanItem {
   readonly benchmark: ResolvedShiptestConfig["benchmarks"][number];
   readonly model: ResolvedShiptestConfig["models"][number];
@@ -55,6 +70,7 @@ export interface AttemptReport {
   };
   readonly agent: Pick<AgentRunResult, "ok" | "status" | "signals" | "telemetry">;
   readonly tool_usage?: AgentRunResult["tool_usage"];
+  readonly quality_signals?: readonly AttemptQualitySignal[];
   readonly submission?: {
     readonly changed_files: readonly string[];
     readonly is_empty: boolean;

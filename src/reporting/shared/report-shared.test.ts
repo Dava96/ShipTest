@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { artifactLink } from "./artifacts.js";
-import { formatCompact, formatDuration, formatUsd } from "./format.js";
+import { formatCompact, formatDuration, formatPreciseUsd, formatUsd } from "./format.js";
 import { average, clamp, median, round } from "./math.js";
 import { benchmarkDetailReportPath, modelDetailReportPath, slugify } from "./paths.js";
 
@@ -13,7 +13,8 @@ describe("report shared helpers", () => {
   it("formats numeric report values", () => {
     expect(formatCompact(9_700_000)).toBe("9.7M");
     expect(formatDuration(125_000)).toBe("2m 5s");
-    expect(formatUsd(0.123456)).toBe("$0.1235");
+    expect(formatUsd(0.123456)).toBe("$0.12");
+    expect(formatPreciseUsd(0.123456)).toBe("$0.1235");
   });
 
   it("computes small math helpers used by report metrics", () => {

@@ -18,6 +18,16 @@ export function formatUsd(value: number | undefined): string {
   if (value >= 100) {
     return `$${value.toFixed(0)}`;
   }
+  return `$${value.toFixed(2)}`;
+}
+
+export function formatPreciseUsd(value: number | undefined): string {
+  if (value === undefined) {
+    return "not available";
+  }
+  if (value >= 100) {
+    return `$${value.toFixed(0)}`;
+  }
   if (value >= 10) {
     return `$${value.toFixed(2)}`;
   }
