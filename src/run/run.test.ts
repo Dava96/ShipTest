@@ -150,6 +150,83 @@ describe("runShiptest", () => {
     ]);
   });
 
+  it("fails implementation attempts that report no token usage", async () => {
+    const fixture = await createFixture({ zeroTokenUsage: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.status).toBe("completed_with_issues");
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly status: string;
+      readonly quality_signals: readonly { readonly id: string; readonly severity: string }[];
+    };
+    expect(attempt.status).toBe("agent_failed");
+    expect(attempt.quality_signals).toContainEqual(
+      expect.objectContaining({ id: "agent_no_token_usage", severity: "error" }),
+    );
+  });
+
+  it("fails implementation attempts that do not change files", async () => {
+    const fixture = await createFixture({ noFileChanges: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly status: string;
+      readonly quality_signals: readonly { readonly id: string; readonly severity: string }[];
+    };
+    expect(attempt.status).toBe("agent_failed");
+    expect(attempt.quality_signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "required_file_changes_missing", severity: "error" }),
+        expect.objectContaining({ id: "empty_submission_patch", severity: "error" }),
+      ]),
+    );
+  });
+
+  it("keeps recovered agent errors as warning-only quality signals", async () => {
+    const fixture = await createFixture({ recoveredAgentError: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.status).toBe("completed");
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly status: string;
+      readonly quality_signals: readonly { readonly id: string; readonly severity: string }[];
+    };
+    expect(attempt.status).toBe("completed");
+    expect(attempt.quality_signals).toContainEqual(
+      expect.objectContaining({ id: "agent_reported_errors", severity: "warning" }),
+    );
+  });
+
   it("continues after an agent failure and records completed_with_issues", async () => {
     const fixture = await createFixture({ failingPi: true });
 
@@ -181,6 +258,9 @@ async function createFixture(
     readonly secondBenchmark?: boolean;
     readonly observePartialArtifacts?: boolean;
     readonly modelAttempts?: number;
+    readonly noFileChanges?: boolean;
+    readonly recoveredAgentError?: boolean;
+    readonly zeroTokenUsage?: boolean;
   } = {},
 ): Promise<{
   readonly configPath: string;
@@ -213,11 +293,11 @@ fs.writeFileSync(observationPath, JSON.stringify({ status: JSON.parse(fs.readFil
     : ""
 }
 fs.mkdirSync("src", { recursive: true });
-fs.writeFileSync("src/generated.txt", "generated\\n");
+${options.noFileChanges ? "" : 'fs.writeFileSync("src/generated.txt", "generated\\\\n");'}
 console.log(JSON.stringify({ type: "agent_start" }));
 console.log(JSON.stringify({ type: "tool_execution_start", toolName: "write" }));
 console.log(JSON.stringify({ type: "tool_execution_end", toolName: "write", isError: false }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }], usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7, cost: { total: 0.01 } } } }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }], ${options.recoveredAgentError ? 'errorMessage: "temporary provider error", ' : ""}usage: ${options.zeroTokenUsage ? "{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } }" : "{ input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7, cost: { total: 0.01 } }"} } }));
 console.log(JSON.stringify({ type: "agent_end", messages: [] }));
 `,
     "utf8",

@@ -13,6 +13,7 @@ import { formatDirtyStateError, getGitDirtyState } from "./git-state.js";
 import { createRunPlan } from "./plan.js";
 import { createAttemptLayout, createRunLayout, toRunRelativePath } from "./run-layout.js";
 import type {
+  AttemptQualitySignal,
   AttemptReport,
   AttemptStatus,
   RunResults,
@@ -294,8 +295,17 @@ async function runAttemptJob(options: {
     }
   }
 
+  const qualitySignals = createAttemptQualitySignals({
+    benchmarkType: item.benchmark.type,
+    agentResult,
+  });
+  const shouldEvaluate =
+    agentResult.ok &&
+    agentResult.submission &&
+    !qualitySignals.some((signal) => signal.severity === "error");
+
   let evaluationResult: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
-  if (agentResult.submission) {
+  if (shouldEvaluate) {
     options.onProgress?.(`${progressPrefix} Running clean-room evaluation.`);
     evaluationResult = await runCleanRoomEvaluation({
       preparedBaselinePath: options.preparedBaseline.path,
@@ -320,6 +330,7 @@ async function runAttemptJob(options: {
     benchmark: item.benchmark,
     model: item.model,
     agentResult,
+    qualitySignals,
     timingsMs: createAttemptTimings(attemptStartedAtMs, agentResult, evaluationResult),
     ...(evaluationResult ? { evaluationResult } : {}),
   });
@@ -348,10 +359,16 @@ function createAttemptReport(options: {
   readonly benchmark: Parameters<typeof runPiJsonAgentAttempt>[0]["benchmark"];
   readonly model: Parameters<typeof runPiJsonAgentAttempt>[0]["model"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
+  readonly qualitySignals: readonly AttemptQualitySignal[];
   readonly evaluationResult?: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
   readonly timingsMs: NonNullable<AttemptReport["timings_ms"]>;
 }): AttemptReport {
-  const status = classifyAttemptStatus(options.agentResult.ok, options.evaluationResult?.ok);
+  const qualitySignals = options.qualitySignals;
+  const status = classifyAttemptStatus(
+    options.agentResult.ok,
+    options.evaluationResult?.ok,
+    qualitySignals,
+  );
   const artifacts: Record<string, string> = {
     attempt_json: toRunRelativePath(options.runRootPath, options.attemptLayout.attemptJsonPath),
     candidate_patch: toRunRelativePath(
@@ -389,6 +406,7 @@ function createAttemptReport(options: {
     ...(options.agentResult.tool_usage
       ? { tool_usage: relativizeToolUsage(options.agentResult.tool_usage, options.runRootPath) }
       : {}),
+    ...(qualitySignals.length > 0 ? { quality_signals: qualitySignals } : {}),
     ...(options.agentResult.submission
       ? {
           submission: {
@@ -447,8 +465,71 @@ function createAttemptTimings(
   };
 }
 
-function classifyAttemptStatus(agentOk: boolean, evaluationOk: boolean | undefined): AttemptStatus {
-  if (!agentOk) {
+function createAttemptQualitySignals(options: {
+  readonly benchmarkType: AttemptReport["benchmark_type"];
+  readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
+}): NonNullable<AttemptReport["quality_signals"]> {
+  const signals: AttemptQualitySignal[] = [];
+  const usage = options.agentResult.telemetry.usage;
+  const totalTokens = usage.total_tokens;
+  const errorCount = options.agentResult.telemetry.error_messages.length;
+
+  if (totalTokens <= 0) {
+    signals.push({
+      id: "agent_no_token_usage",
+      severity: "error",
+      message:
+        "Agent attempt reported zero token usage; ShipTest cannot verify that model inference occurred.",
+    });
+  }
+
+  if (errorCount > 0 && totalTokens <= 0) {
+    signals.push({
+      id: "agent_reported_errors_without_usage",
+      severity: "error",
+      message: `Agent reported ${errorCount} error message(s) without any token usage.`,
+    });
+  } else if (errorCount > 0) {
+    signals.push({
+      id: "agent_reported_errors",
+      severity: "warning",
+      message: `Agent reported ${errorCount} error message(s), but also produced token usage. Treat this as recovered unless other checks failed.`,
+    });
+  }
+
+  if (requiresRepositoryChanges(options.benchmarkType)) {
+    const submission = options.agentResult.submission;
+    if (!submission || submission.changed_files.length === 0) {
+      signals.push({
+        id: "required_file_changes_missing",
+        severity: "error",
+        message:
+          "Implementation and replay_change benchmarks require repository changes, but the submission changed no files.",
+      });
+    }
+    if (submission?.is_empty) {
+      signals.push({
+        id: "empty_submission_patch",
+        severity: "error",
+        message:
+          "Implementation and replay_change benchmarks require a non-empty submission patch.",
+      });
+    }
+  }
+
+  return signals;
+}
+
+function requiresRepositoryChanges(benchmarkType: AttemptReport["benchmark_type"]): boolean {
+  return benchmarkType === "implementation" || benchmarkType === "replay_change";
+}
+
+function classifyAttemptStatus(
+  agentOk: boolean,
+  evaluationOk: boolean | undefined,
+  qualitySignals: readonly { readonly severity: "warning" | "error" }[],
+): AttemptStatus {
+  if (!agentOk || qualitySignals.some((signal) => signal.severity === "error")) {
     return "agent_failed";
   }
   if (evaluationOk === false) {
@@ -526,11 +607,16 @@ function createRunResults(options: {
       evaluation_failed: options.attempts.filter(
         (attempt) => attempt.status === "evaluation_failed",
       ).length,
-      passed: options.attempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length,
-      needs_review: options.attempts.filter(
-        (attempt) => attempt.evaluation?.verdict === "needs_review",
+      passed: options.attempts.filter(
+        (attempt) => attempt.status === "completed" && attempt.evaluation?.verdict === "passed",
       ).length,
-      failed: options.attempts.filter((attempt) => attempt.evaluation?.verdict === "failed").length,
+      needs_review: options.attempts.filter(
+        (attempt) =>
+          attempt.status === "completed" && attempt.evaluation?.verdict === "needs_review",
+      ).length,
+      failed: options.attempts.filter(
+        (attempt) => attempt.status === "completed" && attempt.evaluation?.verdict === "failed",
+      ).length,
       total_tokens: sumUsage(options.attempts, "total_tokens"),
       input_tokens: sumUsage(options.attempts, "input_tokens"),
       output_tokens: sumUsage(options.attempts, "output_tokens"),
