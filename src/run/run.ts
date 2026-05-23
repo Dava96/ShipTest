@@ -79,14 +79,16 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         readonly workspaceKey: string;
       }
     >();
-    const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
-    for (const benchmarkId of benchmarkIds) {
-      options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
+    const benchmarkSelections = uniqueBenchmarkBaseCommitSelections(plan.items);
+    for (const selection of benchmarkSelections) {
+      options.onProgress?.(
+        `[${selection.benchmarkId}@${selection.baseCommit.label}] Preparing baseline.`,
+      );
     }
     const doctorResult = await runDoctor(context, {
       outputRootPath: layout.doctorOutputPath,
       cacheRootPath: layout.cacheRootPath,
-      benchmarkIds,
+      benchmarkSelections,
       snapshotSource,
       onProgress: (event) => {
         if (event.phase === "cache" && event.benchmark_id) {
@@ -94,23 +96,29 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         }
       },
     });
-    for (const benchmarkId of benchmarkIds) {
+    for (const selection of benchmarkSelections) {
       const benchmarkDoctorResult = doctorResult.benchmark_results.find(
-        (result) => result.benchmark_id === benchmarkId,
+        (result) =>
+          result.benchmark_id === selection.benchmarkId &&
+          result.base_commit?.slug === selection.baseCommit.slug,
       );
       if (!benchmarkDoctorResult?.ok) {
-        throw new Error(`Prepared baseline failed for benchmark '${benchmarkId}'.`);
+        throw new Error(
+          `Prepared baseline failed for benchmark '${selection.benchmarkId}' at base commit '${selection.baseCommit.label}'.`,
+        );
       }
       if (!benchmarkDoctorResult.prepared_baseline_path) {
-        throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
+        throw new Error(
+          `Prepared baseline path is missing for benchmark '${selection.benchmarkId}' at base commit '${selection.baseCommit.label}'.`,
+        );
       }
-      preparedBaselines.set(benchmarkId, {
+      preparedBaselines.set(preparedBaselineKey(selection.benchmarkId, selection.baseCommit.slug), {
         path: benchmarkDoctorResult.prepared_baseline_path,
         baselineCommit:
           benchmarkDoctorResult.prepared_baseline_metadata?.clean_git_repo.baseline_commit,
         workspaceKey:
           benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
-          sanitizePathSegment(benchmarkId),
+          sanitizePathSegment(`${selection.benchmarkId}-${selection.baseCommit.slug}`),
       });
     }
     await writeCurrentArtifacts("running");
@@ -137,7 +145,9 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
           configDir: context.configDir,
           repositoryEnvironment: context.config.repository_environment,
           toolUsage: context.config.tool_usage,
-          preparedBaseline: preparedBaselines.get(job.planItem.benchmark.id),
+          preparedBaseline: preparedBaselines.get(
+            preparedBaselineKey(job.planItem.benchmark.id, job.planItem.baseCommit.slug),
+          ),
           piExecutable: options.piExecutable ?? "pi",
           piExecutableArgs: options.piExecutableArgs ?? [],
           eventsPath: layout.eventsPath,
@@ -177,6 +187,7 @@ function createResettableWorkspaceLayout(options: {
   readonly workspaceRootPath: string;
   readonly workspaceKey: string;
   readonly benchmarkId: string;
+  readonly baseCommitSlug: string;
   readonly modelId: string;
   readonly attempt: number;
 }): { readonly agentWorkspacePath: string; readonly evaluationWorkspacePath: string } {
@@ -184,6 +195,7 @@ function createResettableWorkspaceLayout(options: {
     options.workspaceRootPath,
     sanitizePathSegment(options.workspaceKey),
     sanitizePathSegment(options.benchmarkId),
+    sanitizePathSegment(options.baseCommitSlug),
     sanitizePathSegment(options.modelId),
     `attempt-${String(options.attempt).padStart(3, "0")}`,
   );
@@ -195,6 +207,22 @@ function createResettableWorkspaceLayout(options: {
 
 function sanitizePathSegment(value: string): string {
   return value.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function uniqueBenchmarkBaseCommitSelections(items: readonly AttemptJob["planItem"][]) {
+  const byKey = new Map<
+    string,
+    { readonly benchmarkId: string; readonly baseCommit: AttemptJob["planItem"]["baseCommit"] }
+  >();
+  for (const item of items) {
+    const key = preparedBaselineKey(item.benchmark.id, item.baseCommit.slug);
+    byKey.set(key, { benchmarkId: item.benchmark.id, baseCommit: item.baseCommit });
+  }
+  return [...byKey.values()];
+}
+
+function preparedBaselineKey(benchmarkId: string, baseCommitSlug: string): string {
+  return `${benchmarkId}\0${baseCommitSlug}`;
 }
 
 function attemptOrderKey(job: AttemptJob): string {
@@ -244,6 +272,7 @@ async function runAttemptJob(options: {
   const attemptLayout = await createAttemptLayout({
     runRootPath: options.runRootPath,
     benchmarkId: item.benchmark.id,
+    baseCommitSlug: item.baseCommit.slug,
     modelId: item.model.id,
     attempt: job.attempt,
   });
@@ -254,6 +283,7 @@ async function runAttemptJob(options: {
     workspaceRootPath: options.workspaceRootPath,
     workspaceKey: options.preparedBaseline.workspaceKey,
     benchmarkId: item.benchmark.id,
+    baseCommitSlug: item.baseCommit.slug,
     modelId: item.model.id,
     attempt: job.attempt,
   });

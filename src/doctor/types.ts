@@ -29,11 +29,22 @@ export interface DoctorProgressEvent {
   readonly message: string;
 }
 
+export interface DoctorBenchmarkSelection {
+  readonly benchmarkId: string;
+  readonly baseCommit: {
+    readonly commit: string;
+    readonly label: string;
+    readonly slug: string;
+    readonly index: number;
+  };
+}
+
 export interface DoctorOptions {
   readonly outputRootPath: string;
   readonly cacheRootPath?: string;
   readonly benchmarkId?: string;
   readonly benchmarkIds?: readonly string[];
+  readonly benchmarkSelections?: readonly DoctorBenchmarkSelection[];
   readonly noCache?: boolean;
   readonly shiptestVersion?: string;
   readonly commandOutputMaxBytes?: number;
@@ -64,6 +75,12 @@ export interface DoctorTimings {
 
 export interface DoctorBenchmarkResult {
   readonly benchmark_id: string;
+  readonly base_commit?: {
+    readonly commit: string;
+    readonly label: string;
+    readonly slug: string;
+    readonly index: number;
+  };
   readonly ok: boolean;
   readonly timings_ms: DoctorTimings;
   readonly snapshot_manifest?: SnapshotManifest;

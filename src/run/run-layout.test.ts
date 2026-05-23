@@ -49,15 +49,16 @@ describe("run layout", () => {
     const attempt = await createAttemptLayout({
       runRootPath: run.runRootPath,
       benchmarkId: "invoice",
+      baseCommitSlug: "abc123",
       modelId: "openai/gpt-5.5:high",
       attempt: 7,
     });
 
     expect(attempt.attemptRootPath.replaceAll("\\", "/")).toContain(
-      "benchmarks/invoice/models/openai_gpt-5.5_high/attempts/007",
+      "benchmarks/invoice/base-commits/abc123/models/openai_gpt-5.5_high/attempts/007",
     );
     expect(toRunRelativePath(run.runRootPath, attempt.candidatePatchPath)).toBe(
-      "benchmarks/invoice/models/openai_gpt-5.5_high/attempts/007/candidate.patch",
+      "benchmarks/invoice/base-commits/abc123/models/openai_gpt-5.5_high/attempts/007/candidate.patch",
     );
   });
 

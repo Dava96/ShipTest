@@ -48,7 +48,9 @@ export async function runDoctor(
   validateDoctorOutputPath(outputRootPath, repoPath);
 
   const selectedBenchmarkIds =
-    options.benchmarkIds ?? (options.benchmarkId ? [options.benchmarkId] : undefined);
+    options.benchmarkSelections?.map((selection) => selection.benchmarkId) ??
+    options.benchmarkIds ??
+    (options.benchmarkId ? [options.benchmarkId] : undefined);
   const selectedBenchmarkIdSet = selectedBenchmarkIds ? new Set(selectedBenchmarkIds) : undefined;
   const benchmarks = selectedBenchmarkIdSet
     ? context.config.benchmarks.filter((benchmark) => selectedBenchmarkIdSet.has(benchmark.id))
@@ -58,13 +60,19 @@ export async function runDoctor(
       throw new Error(`Unknown benchmark id: ${benchmarkId}`);
     }
   }
+  const doctorSelections =
+    options.benchmarkSelections ??
+    benchmarks.flatMap((benchmark) =>
+      benchmark.base_commits.map((baseCommit) => ({ benchmarkId: benchmark.id, baseCommit })),
+    );
 
   await mkdir(outputRootPath, { recursive: true });
   const workspaceRootPath = path.join(os.tmpdir(), "shiptest-doctor-work", randomUUID());
   const benchmarkResults: DoctorBenchmarkResult[] = [];
-  for (const benchmark of benchmarks) {
-    const benchmarkResult = await runBenchmarkDoctor(context, benchmark.id, {
+  for (const selection of doctorSelections) {
+    const benchmarkResult = await runBenchmarkDoctor(context, selection.benchmarkId, {
       ...options,
+      baseCommit: selection.baseCommit,
       outputRootPath,
       workspaceRootPath,
     });
@@ -86,7 +94,10 @@ export async function runDoctor(
 async function runBenchmarkDoctor(
   context: ShiptestConfigContext,
   benchmarkId: string,
-  options: DoctorOptions & { readonly workspaceRootPath: string },
+  options: DoctorOptions & {
+    readonly workspaceRootPath: string;
+    readonly baseCommit?: NonNullable<DoctorBenchmarkResult["base_commit"]>;
+  },
 ): Promise<DoctorBenchmarkResult> {
   const benchmark = context.config.benchmarks.find((candidate) => candidate.id === benchmarkId);
   if (!benchmark) {
@@ -109,7 +120,11 @@ async function runBenchmarkDoctor(
     },
   ];
   const commands: DoctorCommandResult[] = [];
-  const benchmarkWorkspacePath = path.join(options.workspaceRootPath, benchmarkId);
+  const benchmarkWorkspacePath = path.join(
+    options.workspaceRootPath,
+    benchmarkId,
+    options.baseCommit?.slug ?? "default",
+  );
   const snapshotOutputPath = path.join(benchmarkWorkspacePath, "snapshot");
   const setupWorkspacePath = path.join(benchmarkWorkspacePath, "setup-workspace");
   const preparedWorkspacePath = path.join(benchmarkWorkspacePath, "prepared-baseline");
@@ -120,7 +135,13 @@ async function runBenchmarkDoctor(
   emitProgress(options, benchmarkId, "snapshot", "Building sanitized snapshot.");
   const snapshotResult = await measureTiming(timings, "snapshot_ms", () =>
     buildSnapshotSafely(
-      createBuildSnapshotOptions(context, benchmarkId, snapshotOutputPath, options.snapshotSource),
+      createBuildSnapshotOptions(
+        context,
+        benchmarkId,
+        snapshotOutputPath,
+        options.snapshotSource,
+        options.baseCommit?.commit,
+      ),
     ),
   );
   checks.push(...snapshotResult.checks);
@@ -133,6 +154,7 @@ async function runBenchmarkDoctor(
     emitProgress(options, benchmarkId, "failed", "Snapshot gate failed.");
     return {
       benchmark_id: benchmarkId,
+      ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       commands,
@@ -176,6 +198,7 @@ async function runBenchmarkDoctor(
       });
       return {
         benchmark_id: benchmarkId,
+        ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
         ok: true,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -206,6 +229,7 @@ async function runBenchmarkDoctor(
     emitProgress(options, benchmarkId, "failed", "Repository environment is not supported yet.");
     return {
       benchmark_id: benchmarkId,
+      ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       snapshot_manifest: snapshotResult.manifest,
@@ -237,6 +261,7 @@ async function runBenchmarkDoctor(
       emitProgress(options, benchmarkId, "failed", `Setup command failed: ${command}`);
       return {
         benchmark_id: benchmarkId,
+        ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
         ok: false,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -278,6 +303,7 @@ async function runBenchmarkDoctor(
       );
       return {
         benchmark_id: benchmarkId,
+        ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
         ok: false,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -330,6 +356,7 @@ async function runBenchmarkDoctor(
     emitProgress(options, benchmarkId, "failed", "Prepared baseline gate failed.");
     return {
       benchmark_id: benchmarkId,
+      ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       snapshot_manifest: snapshotResult.manifest,
@@ -348,6 +375,7 @@ async function runBenchmarkDoctor(
   emitProgress(options, benchmarkId, "passed", "Doctor checks passed.");
   return {
     benchmark_id: benchmarkId,
+    ...(options.baseCommit ? { base_commit: options.baseCommit } : {}),
     ok: true,
     timings_ms: finishTimings(timings, startedAt),
     snapshot_manifest: snapshotResult.manifest,
@@ -380,7 +408,11 @@ async function writeBenchmarkDoctorResult(
   outputRootPath: string,
   benchmarkResult: DoctorBenchmarkResult,
 ): Promise<void> {
-  const outputPath = benchmarkDoctorOutputPath(outputRootPath, benchmarkResult.benchmark_id);
+  const outputPath = benchmarkDoctorOutputPath(
+    outputRootPath,
+    benchmarkResult.benchmark_id,
+    benchmarkResult.base_commit?.slug,
+  );
   await mkdir(outputPath, { recursive: true });
   await writeFile(
     path.join(outputPath, "doctor-result.json"),
@@ -396,15 +428,36 @@ function createDoctorResultIndex(result: DoctorResult): object {
       benchmark_id: benchmarkResult.benchmark_id,
       ok: benchmarkResult.ok,
       timings_ms: benchmarkResult.timings_ms,
-      doctor_result: path
-        .join("benchmarks", sanitizePathSegment(benchmarkResult.benchmark_id), "doctor-result.json")
-        .replaceAll(path.sep, "/"),
+      ...(benchmarkResult.base_commit ? { base_commit: benchmarkResult.base_commit } : {}),
+      doctor_result: doctorResultRelativePath(benchmarkResult),
     })),
   };
 }
 
-function benchmarkDoctorOutputPath(outputRootPath: string, benchmarkId: string): string {
-  return path.join(outputRootPath, "benchmarks", sanitizePathSegment(benchmarkId));
+function benchmarkDoctorOutputPath(
+  outputRootPath: string,
+  benchmarkId: string,
+  baseCommitSlug?: string,
+): string {
+  return path.join(
+    outputRootPath,
+    "benchmarks",
+    sanitizePathSegment(benchmarkId),
+    ...(baseCommitSlug ? ["base-commits", sanitizePathSegment(baseCommitSlug)] : []),
+  );
+}
+
+function doctorResultRelativePath(benchmarkResult: DoctorBenchmarkResult): string {
+  return path
+    .join(
+      "benchmarks",
+      sanitizePathSegment(benchmarkResult.benchmark_id),
+      ...(benchmarkResult.base_commit
+        ? ["base-commits", sanitizePathSegment(benchmarkResult.base_commit.slug)]
+        : []),
+      "doctor-result.json",
+    )
+    .replaceAll(path.sep, "/");
 }
 
 function sanitizePathSegment(value: string): string {
@@ -416,16 +469,18 @@ function createBuildSnapshotOptions(
   benchmarkId: string,
   outputRootPath: string,
   snapshotSource: BuildSnapshotOptions["source"] = "git_commit",
+  baseCommit?: string,
 ): BuildSnapshotOptions {
   const benchmark = context.config.benchmarks.find((candidate) => candidate.id === benchmarkId);
   if (!benchmark) {
     throw new Error(`Unknown benchmark id: ${benchmarkId}`);
   }
 
+  const resolvedBaseCommit = baseCommit ?? benchmark.base_commit;
   return {
     source_repo_path: resolveConfigRelativePath(context.configDir, context.config.project.repo),
-    ...(snapshotSource === "git_commit" && benchmark.base_commit
-      ? { base_commit: benchmark.base_commit }
+    ...(snapshotSource === "git_commit" && resolvedBaseCommit
+      ? { base_commit: resolvedBaseCommit }
       : {}),
     output_root_path: path.resolve(outputRootPath),
     shiptest_config_dir: context.configDir,

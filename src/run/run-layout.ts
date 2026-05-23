@@ -63,6 +63,7 @@ export async function createRunLayout(options: {
 export async function createAttemptLayout(options: {
   readonly runRootPath: string;
   readonly benchmarkId: string;
+  readonly baseCommitSlug: string;
   readonly modelId: string;
   readonly attempt: number;
 }): Promise<AttemptLayout> {
@@ -72,6 +73,8 @@ export async function createAttemptLayout(options: {
     options.runRootPath,
     "benchmarks",
     options.benchmarkId,
+    "base-commits",
+    options.baseCommitSlug.replaceAll(/[^a-zA-Z0-9._-]/g, "_"),
     "models",
     safeModelId,
     "attempts",
