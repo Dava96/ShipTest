@@ -4,8 +4,10 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createSnapshotManifest } from "../snapshot/manifest.js";
+import { applyAgentContextExclusions } from "../snapshot/sanitizer.js";
 import { extractSubmission } from "../submission/extract.js";
 import { pathExists } from "../utils/filesystem.js";
+import { defaultGitOperations } from "../utils/git.js";
 import {
   prepareCopiedWorkspace,
   prepareResettableGitWorkspace,
@@ -50,6 +52,11 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
     options.overwrite ?? false,
     options.preparedBaselineCommit,
   );
+  await applyAgentContextExclusions(
+    options.agentWorkspacePath,
+    options.benchmark.agent_context.exclude_paths,
+  );
+  const filteredBaselineCommit = await commitAgentWorkspaceBaseline(options.agentWorkspacePath);
   const workspacePrepareMs = Date.now() - workspacePrepareStartedAt;
 
   const taskPath = path.resolve(options.configDir, options.benchmark.task);
@@ -59,7 +66,7 @@ export async function runPiJsonAgentAttempt(options: AgentRunOptions): Promise<A
 
   const baselineManifest = await createSnapshotManifest({
     snapshotPath: options.agentWorkspacePath,
-    sourceCommit: options.benchmark.base_commit ?? "manual",
+    sourceCommit: filteredBaselineCommit ?? options.benchmark.base_commit ?? "manual",
     sourceTree: "manual",
   });
 
@@ -602,6 +609,25 @@ async function createAgentWorkspace(
     workspacePath: agentWorkspacePath,
     overwrite,
   });
+}
+
+async function commitAgentWorkspaceBaseline(
+  agentWorkspacePath: string,
+): Promise<string | undefined> {
+  if (!(await pathExists(path.join(agentWorkspacePath, ".git")))) {
+    return undefined;
+  }
+  await defaultGitOperations.git(["add", "-A"], agentWorkspacePath);
+  const status = (
+    await defaultGitOperations.git(["status", "--porcelain"], agentWorkspacePath)
+  ).stdout.trim();
+  if (status.length > 0) {
+    await defaultGitOperations.git(
+      ["commit", "--allow-empty", "-m", "shiptest_agent_workspace_baseline"],
+      agentWorkspacePath,
+    );
+  }
+  return (await defaultGitOperations.git(["rev-parse", "HEAD"], agentWorkspacePath)).stdout.trim();
 }
 
 async function writeArtifact(

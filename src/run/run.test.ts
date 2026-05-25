@@ -202,6 +202,51 @@ describe("runShiptest", () => {
     );
   });
 
+  it("filters agent workspaces without filtering clean-room evaluation workspaces", async () => {
+    const fixture = await createFixture({
+      agentExcludePaths: ["secret/**"],
+      assertAgentExclusion: true,
+    });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.summary.passed).toBe(1);
+  });
+
+  it("fails attempts that modify excluded agent workspace paths", async () => {
+    const fixture = await createFixture({
+      agentExcludePaths: ["secret/**"],
+      assertAgentExclusion: true,
+      modifyExcludedPath: true,
+    });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly status: string;
+      readonly quality_signals: readonly { readonly id: string; readonly severity: string }[];
+    };
+    expect(attempt.status).toBe("agent_failed");
+    expect(attempt.quality_signals).toContainEqual(
+      expect.objectContaining({ id: "excluded_path_modified", severity: "error" }),
+    );
+  });
+
   it("keeps recovered agent errors as warning-only quality signals", async () => {
     const fixture = await createFixture({ recoveredAgentError: true });
 
@@ -254,7 +299,10 @@ describe("runShiptest", () => {
 
 async function createFixture(
   options: {
+    readonly agentExcludePaths?: readonly string[];
+    readonly assertAgentExclusion?: boolean;
     readonly failingPi?: boolean;
+    readonly modifyExcludedPath?: boolean;
     readonly secondBenchmark?: boolean;
     readonly observePartialArtifacts?: boolean;
     readonly modelAttempts?: number;
@@ -273,6 +321,14 @@ async function createFixture(
   const runRootPath = path.join(root, "run");
   await mkdir(path.join(repoPath, "src"), { recursive: true });
   await writeFile(path.join(repoPath, "src", "index.txt"), "baseline\n", "utf8");
+  if (options.agentExcludePaths) {
+    await mkdir(path.join(repoPath, "secret"), { recursive: true });
+    await writeFile(
+      path.join(repoPath, "secret", "agent-hidden.txt"),
+      "hidden from agent\n",
+      "utf8",
+    );
+  }
   await initializeCleanGitRepo(repoPath);
 
   const partialObservationPath = path.join(root, "partial-observation.json");
@@ -293,7 +349,9 @@ fs.writeFileSync(observationPath, JSON.stringify({ status: JSON.parse(fs.readFil
     : ""
 }
 fs.mkdirSync("src", { recursive: true });
+${options.assertAgentExclusion ? 'if (fs.existsSync("secret/agent-hidden.txt")) { process.stderr.write("excluded file visible to agent\\n"); process.exit(2); }' : ""}
 ${options.noFileChanges ? "" : 'fs.writeFileSync("src/generated.txt", "generated\\\\n");'}
+${options.modifyExcludedPath ? 'fs.mkdirSync("secret", { recursive: true }); fs.writeFileSync("secret/agent-hidden.txt", "recreated by agent\\n");' : ""}
 console.log(JSON.stringify({ type: "agent_start" }));
 console.log(JSON.stringify({ type: "tool_execution_start", toolName: "write" }));
 console.log(JSON.stringify({ type: "tool_execution_end", toolName: "write", isError: false }));
@@ -313,9 +371,16 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
       : { runner: { model_attempts: options.modelAttempts } }),
     models: [model("fake")],
     defaultModels: ["fake"],
-    scoringCommand: `node -e "process.exit(0)"`,
+    scoringCommand: options.agentExcludePaths
+      ? `node -e "process.exit(require('node:fs').existsSync('secret/agent-hidden.txt') ? 0 : 1)"`
+      : `node -e "process.exit(0)"`,
     benchmarks: [
-      benchmark("bench", { task: "tasks/task.md" }),
+      benchmark("bench", {
+        task: "tasks/task.md",
+        ...(options.agentExcludePaths
+          ? { agent_context: { exclude_paths: [...options.agentExcludePaths] } }
+          : {}),
+      }),
       ...(options.secondBenchmark ? [benchmark("bench-two", { task: "tasks/task-two.md" })] : []),
     ],
     files: {

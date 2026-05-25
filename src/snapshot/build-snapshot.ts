@@ -65,9 +65,7 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
   });
 
   checks.push(await stripRealGitMetadata(agentSnapshotPath));
-  checks.push(
-    await applyAgentContextExclusions(agentSnapshotPath, options.agent_context.exclude_paths),
-  );
+  checks.push(await applyAgentContextExclusions(agentSnapshotPath, [".shiptest/**"]));
   checks.push(await verifyNoRealGitMetadata(agentSnapshotPath));
   checks.push(await createLfsPointerCheck(agentSnapshotPath, options.snapshot.git_lfs_handling));
   checks.push(...(await verifyHiddenEvaluationPaths(agentSnapshotPath, options.evaluation)));

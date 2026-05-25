@@ -38,6 +38,7 @@ export interface DoctorOptions {
   readonly shiptestVersion?: string;
   readonly commandOutputMaxBytes?: number;
   readonly snapshotSource?: SnapshotSource;
+  readonly concurrency?: number;
   readonly onProgress?: (event: DoctorProgressEvent) => void;
 }
 
@@ -62,9 +63,24 @@ export interface DoctorTimings {
   readonly prepare_baseline_ms: number;
 }
 
+export interface DoctorBaselineResult {
+  readonly baseline_id: string;
+  readonly benchmark_ids: readonly string[];
+  readonly ok: boolean;
+  readonly timings_ms: DoctorTimings;
+  readonly snapshot_manifest?: SnapshotManifest;
+  readonly prepared_baseline_path?: string;
+  readonly prepared_baseline_metadata?: PreparedBaselineMetadata;
+  readonly prepared_baseline_timings_ms?: PreparedBaselineTimings;
+  readonly commands: readonly DoctorCommandResult[];
+  readonly checks: readonly (DoctorCheck | SnapshotCheck | PreparedBaselineCheck)[];
+}
+
 export interface DoctorBenchmarkResult {
   readonly benchmark_id: string;
   readonly ok: boolean;
+  readonly baseline_id: string;
+  readonly baseline_result: string;
   readonly timings_ms: DoctorTimings;
   readonly snapshot_manifest?: SnapshotManifest;
   readonly prepared_baseline_path?: string;
@@ -76,5 +92,6 @@ export interface DoctorBenchmarkResult {
 
 export interface DoctorResult {
   readonly ok: boolean;
+  readonly baseline_results: readonly DoctorBaselineResult[];
   readonly benchmark_results: readonly DoctorBenchmarkResult[];
 }

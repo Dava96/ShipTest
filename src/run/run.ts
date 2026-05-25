@@ -7,6 +7,7 @@ import { resolveConfigRelativePath } from "../config/paths.js";
 import { runDoctor } from "../doctor/run-doctor.js";
 import { runCleanRoomEvaluation } from "../evaluation/clean-room-evaluator.js";
 import { writeHtmlReport } from "../reporting/html-report.js";
+import { matchesRepositoryPath } from "../snapshot/sanitizer.js";
 import { type AttemptJob, createAttemptJobs, runBenchmarkFairQueue } from "./attempt-scheduler.js";
 import { writeRunEvent } from "./events.js";
 import { formatDirtyStateError, getGitDirtyState } from "./git-state.js";
@@ -88,18 +89,21 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       cacheRootPath: layout.cacheRootPath,
       benchmarkIds,
       snapshotSource,
+      concurrency,
       onProgress: (event) => {
         if (event.phase === "cache" && event.benchmark_id) {
           options.onProgress?.(`[${event.benchmark_id}] ${event.message}`);
         }
       },
     });
+    const failedBenchmarkIds: string[] = [];
     for (const benchmarkId of benchmarkIds) {
       const benchmarkDoctorResult = doctorResult.benchmark_results.find(
         (result) => result.benchmark_id === benchmarkId,
       );
       if (!benchmarkDoctorResult?.ok) {
-        throw new Error(`Prepared baseline failed for benchmark '${benchmarkId}'.`);
+        failedBenchmarkIds.push(benchmarkId);
+        continue;
       }
       if (!benchmarkDoctorResult.prepared_baseline_path) {
         throw new Error(`Prepared baseline path is missing for benchmark '${benchmarkId}'.`);
@@ -112,6 +116,11 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
           benchmarkDoctorResult.prepared_baseline_metadata?.short_cache_key ??
           sanitizePathSegment(benchmarkId),
       });
+    }
+    if (failedBenchmarkIds.length > 0) {
+      throw new Error(
+        `Prepared baseline failed for benchmark(s): ${failedBenchmarkIds.join(", ")}.`,
+      );
     }
     await writeCurrentArtifacts("running");
 
@@ -296,7 +305,7 @@ async function runAttemptJob(options: {
   }
 
   const qualitySignals = createAttemptQualitySignals({
-    benchmarkType: item.benchmark.type,
+    benchmark: item.benchmark,
     agentResult,
   });
   const shouldEvaluate =
@@ -466,7 +475,7 @@ function createAttemptTimings(
 }
 
 function createAttemptQualitySignals(options: {
-  readonly benchmarkType: AttemptReport["benchmark_type"];
+  readonly benchmark: Parameters<typeof runPiJsonAgentAttempt>[0]["benchmark"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
 }): NonNullable<AttemptReport["quality_signals"]> {
   const signals: AttemptQualitySignal[] = [];
@@ -497,7 +506,20 @@ function createAttemptQualitySignals(options: {
     });
   }
 
-  if (requiresRepositoryChanges(options.benchmarkType)) {
+  const excludedPathChanges = excludedPathMatches(
+    options.agentResult.submission?.changed_files ?? [],
+    options.benchmark.agent_context.exclude_paths,
+  );
+  if (excludedPathChanges.length > 0) {
+    signals.push({
+      id: "excluded_path_modified",
+      severity: "error",
+      message: "Submission modified path(s) excluded from the agent workspace.",
+      paths: excludedPathChanges,
+    });
+  }
+
+  if (requiresRepositoryChanges(options.benchmark.type)) {
     const submission = options.agentResult.submission;
     if (!submission || submission.changed_files.length === 0) {
       signals.push({
@@ -518,6 +540,20 @@ function createAttemptQualitySignals(options: {
   }
 
   return signals;
+}
+
+function excludedPathMatches(
+  changedFiles: readonly string[],
+  excludePaths: readonly string[],
+): readonly string[] {
+  if (changedFiles.length === 0 || excludePaths.length === 0) {
+    return [];
+  }
+  return changedFiles.filter((changedFile) =>
+    excludePaths.some((pattern) =>
+      matchesRepositoryPath(changedFile.replaceAll("\\\\", "/"), pattern),
+    ),
+  );
 }
 
 function requiresRepositoryChanges(benchmarkType: AttemptReport["benchmark_type"]): boolean {
