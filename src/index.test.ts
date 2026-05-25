@@ -74,31 +74,25 @@ async function createFixtureWorkspace(options: FixtureOptions = {}): Promise<str
 project:
   name: payments-api
   repo: repo
-repository_environment:
-  commands_run_in: repository_environment
-  source: dockerfile_target
-  dockerfile_path: Dockerfile
-  dockerfile_target: test
-  setup_commands:
+environment:
+  setup:
     - npm ci
-  validation_commands:
-    required:
-      - npm test
+  validate:
+    - npm test
 models:
   - id: sonnet-4.5
     provider: anthropic
     model: claude-sonnet-4.5
 defaults:
-  run:
-    models:
-      - sonnet-4.5
+  models:
+    - sonnet-4.5
   limits: {}
-  agent_context:
+  agent_view:
     exclude_paths:
       - AGENTS.md
       - "**/CLAUDE.md"
   evaluation:
-    scoring_command: npm test -- tests/invoice.test.ts
+    command: npm test -- tests/invoice.test.ts
 benchmarks:
   - id: invoice-rounding
     type: replay_change
@@ -107,11 +101,11 @@ benchmarks:
     models:
       - ${options.benchmarkModel ?? "sonnet-4.5"}
     evaluation:
-      hidden_evaluation_files:
+      hidden_files:
         - shiptest_path: hidden/invoice.test.ts
           repository_path: ${options.hiddenRepositoryPath ?? "tests/invoice.test.ts"}
           write_mode: create_new
-      hidden_evaluation_directories:
+      hidden_directories:
         - shiptest_path: hidden/fixtures
           repository_path: tests/fixtures/invoice
           write_mode: create_new

@@ -6,13 +6,13 @@ Improve the ShipTest run UX so users understand when and where to normalize a re
 
 ShipTest creates the prepared baseline cache after repository setup. If setup does not run required normalization commands such as formatting, code generation, or `check:fix`, later model verification can produce noisy diffs unrelated to the task. This makes benchmark results harder to trust and harder to review.
 
-Today this behavior is easy to miss. Users should be told that `repository_environment.setup_commands` is the place to put normalization steps before ShipTest caches the baseline.
+Today this behavior is easy to miss. Users should be told that `environment.setup` is the place to put normalization steps before ShipTest caches the baseline.
 
 ## Requirements
 
 - Surface a user-facing warning or guidance during run planning when prepared-baseline caching is enabled.
-- The message should clearly explain that the prepared baseline cache is created after `repository_environment.setup_commands`.
-- The message should recommend putting formatters, code generation, and other normalization commands in `setup_commands`.
+- The message should clearly explain that the prepared baseline cache is created after `environment.setup`.
+- The message should recommend putting formatters, code generation, and other normalization commands in `environment.setup`.
 - Keep the implementation lightweight and suitable for future TUI integration, where this can become a richer UX hint.
 - Add or update tests for the warning/guidance.
 - Do not change the core clean-room trust model.

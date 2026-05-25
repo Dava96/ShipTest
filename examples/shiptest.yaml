@@ -1,46 +1,27 @@
 version: 1
-
 project:
   name: shiptest
   repo: ..
-
-repository_environment:
-  commands_run_in: shiptest_environment
-  source: local
-  setup_commands:
+environment:
+  setup:
     - npm ci
     - npm run check:fix
-  validation_commands:
-    required:
-      - node --version
-    advisory: []
-  teardown_commands: []
-
-snapshot:
-  strategy: sanitized_copy
-  git_lfs_handling: fail_on_pointers
-  submodule_handling: fail_if_detected
-  strip_real_git_metadata: true
-
+  validate:
+    - node --version
 runner:
   concurrency: 20
   model_attempts: 1
-
-shiptest_runner:
-  clean_git_repo:
-    enabled: true
-  prepared_baseline:
-    enabled: true
-    cache: true
-
-tool_usage:
-  record_tool_calls: true
+baselines:
+  cache: true
+artifacts:
+  tool_calls: true
   tool_output: none
-  record_raw_events: false
+  raw_events: false
   final_response: capped
   final_response_max_bytes: 8192
   stderr_max_bytes: 65536
-  categories:
+reporting:
+  tool_categories:
     - id: verification
       label: Verification
       highlights:
@@ -59,28 +40,19 @@ tool_usage:
           match:
             tool: bash
             command_contains: npm run build
-
 models:
-  - id: gpt-5.2
-    provider: openai-codex
-    model: gpt-5.2
-  - id: gpt-5.4
-    provider: openai-codex
-    model: gpt-5.4
-  - id: gpt-5.4-mini
-    provider: openai-codex
-    model: gpt-5.4-mini
-  - id: gpt-5.5
-    provider: openai-codex
-    model: gpt-5.5
-
+  provider: openai-codex
+  include:
+    - gpt-5.2
+    - gpt-5.4
+    - gpt-5.4-mini
+    - gpt-5.5
 defaults:
-  run:
-    models:
-      - gpt-5.2
-      - gpt-5.4
-      - gpt-5.4-mini
-      - gpt-5.5
+  models:
+    - gpt-5.2
+    - gpt-5.4
+    - gpt-5.4-mini
+    - gpt-5.5
   limits:
     max_attempt_mins: 30
     max_turns: 40
@@ -89,192 +61,156 @@ defaults:
     max_uncached_tokens: 1000000
     max_output_tokens: 250000
     max_cache_read_tokens: 5000000
-  agent_context:
+  agent_view:
     load_context_files: false
     exclude_paths:
-      - ".shiptest/**"
-      - "dist/**"
-    instruction_files: []
+      - .shiptest/**
+      - dist/**
   evaluation:
-    clean_room: true
-    scoring_command: npm run typecheck && npm run test:run && npm run build
-    hidden_evaluation_files: []
-    hidden_evaluation_directories: []
-    hidden_evaluation_patches: []
+    command: npm run typecheck && npm run test:run && npm run build
     dependency_changes: warn
-    rerun_setup_on_dependency_change: false
-
 benchmarks:
-  - id: optional-project-repo-default
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/optional-project-repo-default.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/config/config.test.ts
-
-  - id: refactor-test-config-fixture-introduction
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-test-config-fixture-introduction.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/config/config.test.ts
-
-  - id: refactor-test-config-fixture-runner-adoption
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-test-config-fixture-runner-adoption.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
-
-  - id: refactor-test-config-fixture-suite-adoption
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-test-config-fixture-suite-adoption.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/config/config.test.ts src/doctor/run-doctor.test.ts src/evaluation/clean-room-evaluator.test.ts src/evaluation/hidden-payload.test.ts src/run/plan.test.ts src/run/run.test.ts src/snapshot/snapshot.test.ts
-
-  - id: refactor-run-directory-layout
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-run-directory-layout.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/run-layout.test.ts src/run/run.test.ts
-
-  - id: refactor-resettable-workspace-pool
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-resettable-workspace-pool.md
-    attempts: 1
-
-  - id: refactor-pi-model-availability-precheck
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-pi-model-availability-precheck.md
-    attempts: 1
-
-  - id: report-total-estimated-cost
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/report-total-estimated-cost.md
-    attempts: 1
-
-  - id: surface-prepared-baseline-normalization-warning
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/surface-prepared-baseline-normalization-warning.md
-    attempts: 1
-
-  - id: add-draft-working-tree-run-mode
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/add-draft-working-tree-run-mode.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/draft-mode.test.ts src/run/run.test.ts src/snapshot/snapshot.test.ts src/reporting/html-report.test.ts
-
-  - id: add-configurable-tool-usage-reporting
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/add-configurable-tool-usage-reporting.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/config/config.test.ts src/run/run.test.ts src/reporting/html-report.test.ts
-
-  - id: refactor-doctor-per-benchmark-artifacts
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-doctor-per-benchmark-artifacts.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
-
-  - id: write-incremental-results-and-report
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/write-incremental-results-and-report.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/run.test.ts src/reporting/html-report.test.ts
-
-  - id: split-token-budget-and-reporting
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/split-token-budget-and-reporting.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/agent/pi-events.test.ts src/agent/pi-json-harness.test.ts src/reporting/html-report.test.ts src/run/run.test.ts
-
-  - id: stream-pi-output-with-bounded-parsing
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/stream-pi-output-with-bounded-parsing.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/agent/pi-json-harness.test.ts src/agent/pi-events.test.ts
-
-  - id: add-config-backed-model-attempt-concurrency-scheduler
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/add-config-backed-model-attempt-concurrency-scheduler.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/attempt-scheduler.test.ts src/run/run.test.ts src/run/plan.test.ts src/config/config.test.ts
-
-  - id: fail-zero-token-agent-attempts
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/fail-zero-token-agent-attempts.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/run.test.ts src/agent/pi-json-harness.test.ts
-
-  - id: require-file-changes-for-code-benchmarks
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/require-file-changes-for-code-benchmarks.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/run.test.ts
-
-  - id: skip-evaluation-for-invalid-agent-submissions
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/skip-evaluation-for-invalid-agent-submissions.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/run/run.test.ts
-
-  - id: fix-noop-report-metrics-and-cost-display
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/fix-noop-report-metrics-and-cost-display.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/reporting/html-report.test.ts src/reporting/shared/report-shared.test.ts src/run/run.test.ts
-
-  - id: refactor-prepared-baseline-agent-view-separation
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/refactor-prepared-baseline-agent-view-separation.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/snapshot/snapshot.test.ts src/run/run.test.ts
-
-  - id: add-concurrent-shared-baseline-doctor-prep
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/add-concurrent-shared-baseline-doctor-prep.md
-    attempts: 1
-    evaluation:
-      scoring_command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
-
-  - id: shiptest-smoke
-    type: implementation
-    base_commit: f5c2ced
-    task: tasks/shiptest-smoke.md
-    attempts: 1
+  implementation:
+    - id: optional-project-repo-default
+      base_commit: fe58898
+      task: tasks/optional-project-repo-default.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/config/config.test.ts
+    - id: refactor-test-config-fixture-introduction
+      base_commit: feb21f0
+      task: tasks/refactor-test-config-fixture-introduction.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/config/config.test.ts
+    - id: refactor-test-config-fixture-runner-adoption
+      base_commit: 2a7e59a
+      task: tasks/refactor-test-config-fixture-runner-adoption.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
+    - id: refactor-test-config-fixture-suite-adoption
+      base_commit: f1e0dc5
+      task: tasks/refactor-test-config-fixture-suite-adoption.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/agent/pi-json-harness.test.ts
+          src/config/config.test.ts src/doctor/run-doctor.test.ts
+          src/evaluation/clean-room-evaluator.test.ts
+          src/evaluation/hidden-payload.test.ts src/run/plan.test.ts
+          src/run/run.test.ts src/snapshot/snapshot.test.ts
+    - id: refactor-run-directory-layout
+      base_commit: dd611d7
+      task: tasks/refactor-run-directory-layout.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/run-layout.test.ts src/run/run.test.ts
+    - id: refactor-resettable-workspace-pool
+      base_commit: e0aabd9
+      task: tasks/refactor-resettable-workspace-pool.md
+      benchmark_runs: 1
+    - id: refactor-pi-model-availability-precheck
+      base_commit: 6c79bf0
+      task: tasks/refactor-pi-model-availability-precheck.md
+      benchmark_runs: 1
+    - id: report-total-estimated-cost
+      base_commit: 6f63300
+      task: tasks/report-total-estimated-cost.md
+      benchmark_runs: 1
+    - id: surface-prepared-baseline-normalization-warning
+      base_commit: e1d061d
+      task: tasks/surface-prepared-baseline-normalization-warning.md
+      benchmark_runs: 1
+    - id: add-draft-working-tree-run-mode
+      base_commit: 4dc3a0d
+      task: tasks/add-draft-working-tree-run-mode.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/draft-mode.test.ts src/run/run.test.ts
+          src/snapshot/snapshot.test.ts src/reporting/html-report.test.ts
+    - id: add-configurable-tool-usage-reporting
+      base_commit: 35fe97e
+      task: tasks/add-configurable-tool-usage-reporting.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/agent/pi-json-harness.test.ts
+          src/config/config.test.ts src/run/run.test.ts
+          src/reporting/html-report.test.ts
+    - id: refactor-doctor-per-benchmark-artifacts
+      base_commit: 4c7f2fd
+      task: tasks/refactor-doctor-per-benchmark-artifacts.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
+    - id: write-incremental-results-and-report
+      base_commit: 7adb559
+      task: tasks/write-incremental-results-and-report.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/run.test.ts
+          src/reporting/html-report.test.ts
+    - id: split-token-budget-and-reporting
+      base_commit: 793221b
+      task: tasks/split-token-budget-and-reporting.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/agent/pi-events.test.ts
+          src/agent/pi-json-harness.test.ts src/reporting/html-report.test.ts
+          src/run/run.test.ts
+    - id: stream-pi-output-with-bounded-parsing
+      base_commit: 569c68d
+      task: tasks/stream-pi-output-with-bounded-parsing.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/agent/pi-json-harness.test.ts
+          src/agent/pi-events.test.ts
+    - id: add-config-backed-model-attempt-concurrency-scheduler
+      base_commit: f5c2ced
+      task: tasks/add-config-backed-model-attempt-concurrency-scheduler.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/attempt-scheduler.test.ts
+          src/run/run.test.ts src/run/plan.test.ts src/config/config.test.ts
+    - id: fail-zero-token-agent-attempts
+      base_commit: 90fbe18
+      task: tasks/fail-zero-token-agent-attempts.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/run.test.ts
+          src/agent/pi-json-harness.test.ts
+    - id: require-file-changes-for-code-benchmarks
+      base_commit: 90fbe18
+      task: tasks/require-file-changes-for-code-benchmarks.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/run.test.ts
+    - id: skip-evaluation-for-invalid-agent-submissions
+      base_commit: 90fbe18
+      task: tasks/skip-evaluation-for-invalid-agent-submissions.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/run/run.test.ts
+    - id: fix-noop-report-metrics-and-cost-display
+      base_commit: 1503d73
+      task: tasks/fix-noop-report-metrics-and-cost-display.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/reporting/html-report.test.ts
+          src/reporting/shared/report-shared.test.ts src/run/run.test.ts
+    - id: refactor-prepared-baseline-agent-view-separation
+      base_commit: 18109bb
+      task: tasks/refactor-prepared-baseline-agent-view-separation.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/snapshot/snapshot.test.ts src/run/run.test.ts
+    - id: add-concurrent-shared-baseline-doctor-prep
+      base_commit: 18109bb
+      task: tasks/add-concurrent-shared-baseline-doctor-prep.md
+      benchmark_runs: 1
+      evaluation:
+        command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
+    - id: shiptest-smoke
+      base_commit: f5c2ced
+      task: tasks/shiptest-smoke.md
+      benchmark_runs: 1
+  replay_change: []

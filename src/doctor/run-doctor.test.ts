@@ -118,19 +118,17 @@ describe("runDoctor", () => {
       root,
       configSubdir: "config",
       projectRepo: repoPath,
-      repositoryEnvironment: {
-        commands_run_in: "shiptest_environment",
-        source: "local",
-        setup_commands: [`node ${JSON.stringify(setupScriptPath)}`],
-        validation_commands: { required: ['node -e "process.exit(0)"'], advisory: [] },
+      environment: {
+        setup: [`node ${JSON.stringify(setupScriptPath)}`],
+        validate: ['node -e "process.exit(0)"'],
       },
       benchmarks: [
         benchmark("doctor-smoke", {
-          agent_context: { exclude_paths: ["docs/**"] },
+          agent_view: { exclude_paths: ["docs/**"] },
         }),
         benchmark("doctor-smoke-two", {
           task: "tasks/doctor-smoke-two.md",
-          agent_context: { exclude_paths: ["generated/**"] },
+          agent_view: { exclude_paths: ["generated/**"] },
         }),
       ],
       files: {
@@ -191,11 +189,9 @@ describe("runDoctor", () => {
       root,
       configSubdir: "config",
       projectRepo: repoPath,
-      repositoryEnvironment: {
-        commands_run_in: "shiptest_environment",
-        source: "local",
-        setup_commands: [setupCommand],
-        validation_commands: { required: ['node -e "process.exit(0)"'], advisory: [] },
+      environment: {
+        setup: [setupCommand],
+        validate: ['node -e "process.exit(0)"'],
       },
       benchmarks: [
         benchmark("doctor-first", { base_commit: firstCommit, task: "tasks/doctor-first.md" }),
@@ -328,11 +324,9 @@ async function createConfig(
 ): Promise<string> {
   const fixture = await createShiptestConfigFixture({
     projectRepo: repoPath,
-    repositoryEnvironment: {
-      commands_run_in: "shiptest_environment",
-      source: "local",
-      setup_commands: [],
-      validation_commands: {
+    environment: {
+      setup: [],
+      validate: {
         required: [...options.required],
         advisory: [...options.advisory],
       },

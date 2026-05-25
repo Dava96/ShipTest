@@ -79,7 +79,7 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     root,
     configSubdir: "config",
     projectRepo: repoPath,
-    repositoryEnvironment: { validation_commands: { required: ["node --version"] } },
+    environment: { validate: ["node --version"] },
     models: [model("fake")],
     defaultModels: ["fake"],
     scoringCommand: `node -e "process.exit(0)"`,

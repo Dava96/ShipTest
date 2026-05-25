@@ -25,16 +25,16 @@ export function createRunPlan(options: {
   const warnings: string[] = [];
   if (options.config.shiptest_runner.prepared_baseline.cache) {
     warnings.push(
-      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
+      "Prepared baseline cache is created after environment.setup. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
     );
   }
   for (const benchmark of options.config.benchmarks) {
     if (benchmarkFilter.size > 0 && !benchmarkFilter.has(benchmark.id)) {
       continue;
     }
-    if (benchmark.attempts > 1) {
+    if (benchmark.benchmark_runs > 1) {
       warnings.push(
-        `Benchmark '${benchmark.id}' configures ${benchmark.attempts} attempts; this run command currently executes one agent run per benchmark/model.`,
+        `Benchmark '${benchmark.id}' configures ${benchmark.benchmark_runs} benchmark runs; this run command currently executes one run per benchmark/model.`,
       );
     }
     const benchmarkModelIds = benchmark.models ?? options.config.models.map((model) => model.id);
@@ -63,28 +63,41 @@ export function createRunPlan(options: {
 }
 
 export function formatRunPlan(plan: RunPlan): string {
-  const benchmarkLines = new Map<string, string>();
+  const benchmarkTasks = new Map<string, string>();
+  const modelsByBenchmark = new Map<string, string[]>();
+  const selectedModelIds: string[] = [];
   for (const item of plan.items) {
-    const configuredModels = item.benchmark.models;
-    const modelSuffix = configuredModels ? `  models: ${formatList(configuredModels)}` : "";
-    benchmarkLines.set(
-      item.benchmark.id,
-      `- ${item.benchmark.id}  ${item.benchmark.task}${modelSuffix}`,
-    );
+    benchmarkTasks.set(item.benchmark.id, item.benchmark.task);
+    appendUnique(modelsByBenchmark, item.benchmark.id, item.model.id);
+    if (!selectedModelIds.includes(item.model.id)) {
+      selectedModelIds.push(item.model.id);
+    }
   }
+  const benchmarkLines = [...benchmarkTasks.entries()].map(([benchmarkId, task]) => {
+    const selectedModels = modelsByBenchmark.get(benchmarkId) ?? [];
+    return `- ${benchmarkId}  ${task}  models: ${formatList(selectedModels)}`;
+  });
 
   return [
     "ShipTest run plan",
     "",
-    `Benchmarks: ${benchmarkLines.size}`,
-    `Default models: ${formatList(plan.default_model_ids)}`,
+    `Benchmarks: ${benchmarkLines.length}`,
+    `Selected models: ${formatList(selectedModelIds)}`,
     "",
     "Benchmarks:",
-    ...[...benchmarkLines.values()].slice(0, 20),
-    ...(benchmarkLines.size > 20 ? [`... (+${benchmarkLines.size - 20} more)`] : []),
+    ...benchmarkLines.slice(0, 20),
+    ...(benchmarkLines.length > 20 ? [`... (+${benchmarkLines.length - 20} more)`] : []),
     "",
     `Benchmark/model pairs: ${plan.items.length}`,
   ].join("\n");
+}
+
+function appendUnique(map: Map<string, string[]>, key: string, value: string): void {
+  const list = map.get(key) ?? [];
+  if (!list.includes(value)) {
+    list.push(value);
+  }
+  map.set(key, list);
 }
 
 function formatList(values: readonly string[]): string {

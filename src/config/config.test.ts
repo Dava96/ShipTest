@@ -63,12 +63,12 @@ describe("config loading and validation", () => {
     const config = ShiptestConfigSchema.parse({
       version: 1,
       project: { name: "fixture" },
-      repository_environment: { validation_commands: { required: ["npm test"] } },
+      environment: { validate: ["npm test"] },
       models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
       defaults: {
         limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
+        agent_view: {},
+        evaluation: { command: "npm test" },
       },
       benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
     });
@@ -76,26 +76,138 @@ describe("config loading and validation", () => {
     expect(config.runner).toEqual({ concurrency: 1, model_attempts: 1 });
   });
 
-  it("loads config without optional repository environment file paths", async () => {
-    const fixture = await createConfigFixture();
-    const configText = await import("node:fs/promises").then((fs) =>
-      fs.readFile(fixture.configPath, "utf8"),
-    );
-    await import("node:fs/promises").then((fs) =>
-      fs.writeFile(
-        fixture.configPath,
-        configText
-          .replace("  source: dockerfile_target\n", "")
-          .replace("  commands_run_in: repository_environment\n", "")
-          .replace("  dockerfile_path: Dockerfile\n", "")
-          .replace("  dockerfile_target: test\n", "")
-          .replace("  compose_file: compose.yaml\n", ""),
-        "utf8",
-      ),
-    );
+  it("normalizes simplified environment commands", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { setup: ["npm ci"], validate: ["npm test"] },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
 
-    await expect(loadShiptestConfig(fixture.configPath)).resolves.toMatchObject({
-      repository_environment: { source: "local" },
+    expect(config.repository_environment).toMatchObject({
+      commands_run_in: "shiptest_environment",
+      source: "local",
+      setup_commands: ["npm ci"],
+      validation_commands: { required: ["npm test"], advisory: [] },
+      teardown_commands: [],
+    });
+  });
+
+  it("normalizes baseline cache settings", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { validate: ["npm test"] },
+      baselines: { cache: false },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.shiptest_runner).toEqual({
+      clean_git_repo: { enabled: true },
+      prepared_baseline: { enabled: true, cache: false },
+    });
+  });
+
+  it("normalizes simple single-provider model config", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { validate: ["npm test"] },
+      models: { provider: "openai-codex", include: ["gpt-5.4", "gpt-5.5"] },
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.models).toEqual([
+      { id: "gpt-5.4", provider: "openai-codex", model: "gpt-5.4" },
+      { id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" },
+    ]);
+  });
+
+  it("normalizes artifact capture and reporting settings", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { validate: ["npm test"] },
+      artifacts: {
+        tool_calls: false,
+        tool_output: "excerpts",
+        raw_events: true,
+        final_response: "none",
+        stderr_max_bytes: 1234,
+      },
+      reporting: {
+        tool_categories: [
+          {
+            id: "verification",
+            label: "Verification",
+            highlights: [
+              {
+                id: "tests",
+                label: "Tests",
+                match: { tool: "bash", command_contains: "npm test" },
+              },
+            ],
+          },
+        ],
+      },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.tool_usage).toMatchObject({
+      record_tool_calls: false,
+      tool_output: "excerpts",
+      tool_output_excerpt_bytes: 8192,
+      record_raw_events: true,
+      final_response: "none",
+      final_response_max_bytes: 8192,
+      stderr_max_bytes: 1234,
+      categories: [expect.objectContaining({ id: "verification" })],
+    });
+  });
+
+  it("normalizes workspace safety options", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { validate: ["npm test"] },
+      workspace: { lfs: "allow_pointer_files", submodules: "leave_unchecked_out" },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.snapshot).toEqual({
+      strategy: "sanitized_copy",
+      git_lfs_handling: "allow_pointer_files",
+      submodule_handling: "leave_unchecked_out",
+      strip_real_git_metadata: true,
     });
   });
 
@@ -115,6 +227,23 @@ describe("config loading and validation", () => {
     expect(context.config.project.repo).toBe(repo);
   });
 
+  it("infers omitted project.name from the resolved project repo directory", async () => {
+    const root = await createTempDirectory();
+    const repo = path.join(root, "repo", "services", "billing-api");
+    await mkdir(repo, { recursive: true });
+    const fixture = await createShiptestConfigFixture({
+      root,
+      configSubdir: "repo",
+      projectName: "omit",
+      projectRepo: "services/billing-api",
+    });
+
+    const context = await loadShiptestConfigContext(fixture.configPath);
+
+    expect(context.config.project.name).toBe("billing-api");
+    expect(context.config.project.repo).toBe(repo);
+  });
+
   it("falls back to the config directory when project.repo is omitted outside a git repo", async () => {
     const fixture = await createShiptestConfigFixture({
       projectRepo: "omit",
@@ -127,8 +256,6 @@ describe("config loading and validation", () => {
 
   it("validates semantic config references", async () => {
     const fixture = await createConfigFixture({
-      dockerfilePath: "Missing.Dockerfile",
-      composeFile: "missing-compose.yaml",
       excludePath: "../outside",
       hiddenDirectoryRepositoryPath: "../hidden-dir",
       instructionFile: "missing-instructions.md",
@@ -139,15 +266,13 @@ describe("config loading and validation", () => {
 
     await expect(loadShiptestConfig(fixture.configPath)).rejects.toMatchObject({
       issues: expect.arrayContaining([
-        expect.objectContaining({ path: "repository_environment.dockerfile_path" }),
-        expect.objectContaining({ path: "repository_environment.compose_file" }),
-        expect.objectContaining({ path: "benchmarks[0].agent_context.instruction_files[0]" }),
+        expect.objectContaining({ path: "benchmarks[0].agent_view.instruction_files[0]" }),
         expect.objectContaining({
-          path: "benchmarks[0].evaluation.hidden_evaluation_files[0].shiptest_path",
+          path: "benchmarks[0].evaluation.hidden_files[0].shiptest_path",
         }),
         expect.objectContaining({ code: "REFERENCED_DIRECTORY_NOT_FOUND" }),
         expect.objectContaining({
-          path: "benchmarks[0].evaluation.hidden_evaluation_patches[0].shiptest_path",
+          path: "benchmarks[0].evaluation.hidden_patches[0].shiptest_path",
         }),
       ]),
     } satisfies Partial<ShiptestConfigError>);
@@ -177,74 +302,30 @@ describe("config loading and validation", () => {
     } satisfies Partial<ShiptestConfigError>);
   });
 
-  it("requires source-specific repository environment fields", () => {
-    const baseConfig = {
-      version: 1,
-      project: { name: "p", repo: "." },
-      models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
-      defaults: {
-        run: { models: ["sonnet"] },
-        limits: {},
-        agent_context: {},
-        evaluation: { scoring_command: "npm test" },
-      },
-      benchmarks: [
-        {
-          id: "invoice",
-          type: "implementation",
-          task: "task.md",
-          evaluation: { scoring_command: "npm test" },
-        },
-      ],
-    };
-
+  it("accepts expanded environment validation commands", () => {
     expect(
       ShiptestConfigSchema.safeParse({
-        ...baseConfig,
-        repository_environment: {
-          source: "dockerfile_target",
-          validation_commands: { required: ["npm test"] },
+        version: 1,
+        project: { name: "p", repo: "." },
+        environment: {
+          setup: ["npm ci"],
+          validate: { required: ["npm test"], advisory: ["npm run lint"] },
         },
-      }).success,
-    ).toBe(false);
-    expect(
-      ShiptestConfigSchema.safeParse({
-        ...baseConfig,
-        repository_environment: {
-          source: "docker_image",
-          validation_commands: { required: ["npm test"] },
+        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+        defaults: {
+          models: ["sonnet"],
+          limits: {},
+          agent_view: {},
+          evaluation: { command: "npm test" },
         },
-      }).success,
-    ).toBe(false);
-    expect(
-      ShiptestConfigSchema.safeParse({
-        ...baseConfig,
-        repository_environment: {
-          source: "compose",
-          compose_file: "compose.yaml",
-          validation_commands: { required: ["npm test"] },
-        },
-      }).success,
-    ).toBe(false);
-    expect(
-      ShiptestConfigSchema.safeParse({
-        ...baseConfig,
-        repository_environment: {
-          source: "devcontainer",
-          validation_commands: { required: ["npm test"] },
-        },
-      }).success,
-    ).toBe(false);
-    expect(
-      ShiptestConfigSchema.safeParse({
-        ...baseConfig,
-        repository_environment: {
-          commands_run_in: "repository_environment",
-          source: "scripts",
-          setup_commands: ["./install.sh"],
-          validation_commands: { required: ["./test.sh --filter invoice"] },
-          teardown_commands: ["./stop.sh"],
-        },
+        benchmarks: [
+          {
+            id: "invoice",
+            type: "implementation",
+            task: "task.md",
+            evaluation: { command: "npm test" },
+          },
+        ],
       }).success,
     ).toBe(true);
   });
@@ -254,13 +335,13 @@ describe("config loading and validation", () => {
       ShiptestConfigSchema.safeParse({
         version: 1,
         project: { name: "p", repo: "." },
-        repository_environment: { validation_commands: { required: ["npm test"] } },
+        environment: { validate: ["npm test"] },
         models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
         defaults: {
-          run: { models: ["sonnet"] },
+          models: ["sonnet"],
           limits: {},
-          agent_context: {},
-          evaluation: { scoring_command: "npm test" },
+          agent_view: {},
+          evaluation: { command: "npm test" },
         },
         benchmarks: [
           {
@@ -268,8 +349,8 @@ describe("config loading and validation", () => {
             type: "implementation",
             task: "task.md",
             evaluation: {
-              scoring_command: "npm test",
-              hidden_evaluation_patches: [{ shiptest_path: "patch.diff" }],
+              command: "npm test",
+              hidden_patches: [{ shiptest_path: "patch.diff" }],
             },
           },
         ],
@@ -282,20 +363,20 @@ describe("config loading and validation", () => {
       ShiptestConfigSchema.safeParse({
         version: 1,
         project: { name: "p", repo: "." },
-        repository_environment: { validation_commands: { required: ["npm test"] } },
+        environment: { validate: ["npm test"] },
         models: [{ id: "gpt-5.5", provider: "openai-codex", model: "gpt-5.5" }],
         defaults: {
-          run: { models: ["gpt-5.5"] },
+          models: ["gpt-5.5"],
           limits: {},
-          agent_context: {},
-          evaluation: { scoring_command: "npm test" },
+          agent_view: {},
+          evaluation: { command: "npm test" },
         },
         benchmarks: [
           {
             id: "invoice",
             type: "implementation",
             task: "task.md",
-            evaluation: { scoring_command: "npm test" },
+            evaluation: { command: "npm test" },
           },
         ],
       }).success,
@@ -307,17 +388,17 @@ describe("config loading and validation", () => {
       ShiptestConfigSchema.safeParse({
         version: 1,
         project: { name: "p", repo: "." },
-        repository_environment: { validation_commands: { required: ["npm test"] } },
+        environment: { validate: ["npm test"] },
         models: [
           { id: "same", provider: "openai", model: "gpt" },
           { id: "same", provider: "anthropic", model: "claude" },
           { id: "local", provider: "openai_compatible", model: "qwen" },
         ],
         defaults: {
-          run: { models: ["same"] },
+          models: ["same"],
           limits: {},
-          agent_context: {},
-          evaluation: { scoring_command: "npm test" },
+          agent_view: {},
+          evaluation: { command: "npm test" },
         },
         benchmarks: [
           {
@@ -325,14 +406,14 @@ describe("config loading and validation", () => {
             type: "replay_change",
             task: "task.md",
             evaluation: {
-              scoring_command: "npm test",
+              command: "npm test",
             },
           },
           {
             id: "same-benchmark",
             type: "implementation",
             task: "task.md",
-            evaluation: { scoring_command: "npm test" },
+            evaluation: { command: "npm test" },
           },
         ],
       }).success,
@@ -352,8 +433,6 @@ describe("config loading and validation", () => {
 });
 
 interface ConfigFixtureOptions {
-  readonly composeFile?: string;
-  readonly dockerfilePath?: string;
   readonly excludePath?: string;
   readonly hiddenDirectoryPath?: string;
   readonly hiddenDirectoryRepositoryPath?: string;
@@ -387,42 +466,35 @@ async function createConfigFixture(options: ConfigFixtureOptions = {}): Promise<
     `version: 1
 project:
   name: payments-api
-${options.omitProjectRepo ? "" : "  repo: repo\n"}repository_environment:
-  source: dockerfile_target
-  commands_run_in: repository_environment
-  dockerfile_path: ${options.dockerfilePath ?? "Dockerfile"}
-  dockerfile_target: test
-  compose_file: ${options.composeFile ?? "compose.yaml"}
-  validation_commands:
-    required:
-      - npm test
+${options.omitProjectRepo ? "" : "  repo: repo\n"}environment:
+  validate:
+    - npm test
 models:
   - id: sonnet
     provider: anthropic
     model: claude
 defaults:
-  run:
-    models:
-      - sonnet
+  models:
+    - sonnet
   limits: {}
-  agent_context:
+  agent_view:
     exclude_paths:
       - ${options.excludePath ?? "src/**"}
     instruction_files:
       - ${options.instructionFile ?? "instructions.md"}
   evaluation:
-    scoring_command: npm test
-    hidden_evaluation_files:
+    command: npm test
+    hidden_files:
       - shiptest_path: ${options.hiddenFilePath ?? "hidden/test.ts"}
         repository_path: tests/test.ts
         write_mode: create_new
-    hidden_evaluation_directories:
+    hidden_directories:
       - shiptest_path: ${options.hiddenDirectoryPath ?? "hidden/fixtures"}
         repository_path: ${options.hiddenDirectoryRepositoryPath ?? "tests/fixtures"}
         write_mode: create_new
-    hidden_evaluation_patches:
+    hidden_patches:
       - shiptest_path: ${options.hiddenPatchPath ?? "hidden/patch.diff"}
-    hidden_evaluation_patch_policy: advanced_allow_collision_risk
+    hidden_patch_policy: advanced_allow_collision_risk
 benchmarks:
   - id: invoice
     type: replay_change

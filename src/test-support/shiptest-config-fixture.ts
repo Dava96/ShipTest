@@ -7,14 +7,21 @@ import type { z } from "zod";
 import { ShiptestConfigSchema } from "../config/schema.js";
 
 export type ShiptestConfigInput = z.input<typeof ShiptestConfigSchema>;
-export type ModelInput = ShiptestConfigInput["models"][number];
-export type BenchmarkInput = ShiptestConfigInput["benchmarks"][number];
+export type ModelInput = Extract<ShiptestConfigInput["models"], readonly unknown[]>[number];
+type GroupedBenchmarksInput = Extract<
+  ShiptestConfigInput["benchmarks"],
+  { readonly implementation?: unknown }
+>;
+export type BenchmarkInput = NonNullable<GroupedBenchmarksInput["implementation"]>[number] & {
+  readonly type?: "implementation" | "replay_change";
+};
+export type ProjectNameFixtureValue = string | "omit";
 export type ProjectRepoFixtureValue = string | "omit";
 
 export interface ShiptestConfigInputOptions {
-  readonly projectName?: string;
+  readonly projectName?: ProjectNameFixtureValue;
   readonly projectRepo?: ProjectRepoFixtureValue;
-  readonly repositoryEnvironment?: ShiptestConfigInput["repository_environment"];
+  readonly environment?: ShiptestConfigInput["environment"];
   readonly runner?: ShiptestConfigInput["runner"];
   readonly models?: readonly ModelInput[];
   readonly defaultModels?: readonly string[] | "omit";
@@ -64,22 +71,35 @@ export function createShiptestConfigInput(
 
   return {
     version: 1,
-    project:
-      options.projectRepo === "omit"
-        ? { name: options.projectName ?? "fixture" }
-        : { name: options.projectName ?? "fixture", repo: options.projectRepo ?? "." },
-    repository_environment: options.repositoryEnvironment ?? {
-      validation_commands: { required: ["npm test"] },
+    project: {
+      ...(options.projectName === "omit" ? {} : { name: options.projectName ?? "fixture" }),
+      ...(options.projectRepo === "omit" ? {} : { repo: options.projectRepo ?? "." }),
+    },
+    environment: options.environment ?? {
+      validate: ["npm test"],
     },
     ...(options.runner === undefined ? {} : { runner: options.runner }),
     models: [...models],
     defaults: {
-      run: defaultModels === undefined ? {} : { models: [...defaultModels] },
+      ...(defaultModels === undefined ? {} : { models: [...defaultModels] }),
       limits: {},
-      agent_context: {},
-      evaluation: { scoring_command: options.scoringCommand ?? "npm test" },
+      agent_view: {},
+      evaluation: { command: options.scoringCommand ?? "npm test" },
     },
-    benchmarks: [...(options.benchmarks ?? [benchmark()])],
+    benchmarks: groupBenchmarkInputs(options.benchmarks ?? [benchmark()]),
+  };
+}
+
+function groupBenchmarkInputs(
+  benchmarks: readonly BenchmarkInput[],
+): ShiptestConfigInput["benchmarks"] {
+  return {
+    implementation: benchmarks
+      .filter((item) => (item.type ?? "implementation") === "implementation")
+      .map(({ type: _type, ...item }) => item),
+    replay_change: benchmarks
+      .filter((item) => item.type === "replay_change")
+      .map(({ type: _type, ...item }) => item),
   };
 }
 

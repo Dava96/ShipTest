@@ -4,11 +4,7 @@ import { isDirectory, isFile, pathExists } from "../utils/filesystem.js";
 import type { ValidationIssue } from "./errors.js";
 import { ConfigIssueCode } from "./issue-codes.js";
 import type { ShiptestConfigContext } from "./load-config.js";
-import {
-  isSafeWorkspacePath,
-  resolveConfigRelativePath,
-  resolveRepoRelativePath,
-} from "./paths.js";
+import { isSafeWorkspacePath, resolveConfigRelativePath } from "./paths.js";
 
 export async function validateConfigReferences(
   context: ShiptestConfigContext,
@@ -17,24 +13,6 @@ export async function validateConfigReferences(
   const repoDir = resolveConfigRelativePath(context.configDir, context.config.project.repo);
 
   await addPathExistsIssue(issues, "project.repo", repoDir, ConfigIssueCode.ProjectRepoNotFound);
-
-  if (context.config.repository_environment.dockerfile_path) {
-    await addPathExistsIssue(
-      issues,
-      "repository_environment.dockerfile_path",
-      resolveRepoRelativePath(repoDir, context.config.repository_environment.dockerfile_path),
-      ConfigIssueCode.ReferencedFileNotFound,
-    );
-  }
-
-  if (context.config.repository_environment.compose_file) {
-    await addPathExistsIssue(
-      issues,
-      "repository_environment.compose_file",
-      resolveRepoRelativePath(repoDir, context.config.repository_environment.compose_file),
-      ConfigIssueCode.ReferencedFileNotFound,
-    );
-  }
 
   for (const [benchmarkIndex, benchmark] of context.config.benchmarks.entries()) {
     const benchmarkPath = `benchmarks[${benchmarkIndex}]`;
@@ -49,7 +27,7 @@ export async function validateConfigReferences(
       if (!isSafeWorkspacePath(excludePath)) {
         issues.push({
           code: ConfigIssueCode.UnsafeWorkspacePath,
-          path: `${benchmarkPath}.agent_context.exclude_paths[${excludeIndex}]`,
+          path: `${benchmarkPath}.agent_view.exclude_paths[${excludeIndex}]`,
           message: `Agent context exclude path must be relative and stay inside the workspace: ${excludePath}`,
         });
       }
@@ -61,7 +39,7 @@ export async function validateConfigReferences(
     ] of benchmark.agent_context.instruction_files.entries()) {
       await addPathExistsIssue(
         issues,
-        `${benchmarkPath}.agent_context.instruction_files[${fileIndex}]`,
+        `${benchmarkPath}.agent_view.instruction_files[${fileIndex}]`,
         resolveConfigRelativePath(context.configDir, instructionFile),
         ConfigIssueCode.ReferencedFileNotFound,
       );
@@ -70,14 +48,14 @@ export async function validateConfigReferences(
     for (const [fileIndex, hiddenFile] of benchmark.evaluation.hidden_evaluation_files.entries()) {
       await addFileExistsIssue(
         issues,
-        `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].shiptest_path`,
+        `${benchmarkPath}.evaluation.hidden_files[${fileIndex}].shiptest_path`,
         resolveConfigRelativePath(context.configDir, hiddenFile.shiptest_path),
       );
 
       if (!isSafeWorkspacePath(hiddenFile.repository_path)) {
         issues.push({
           code: ConfigIssueCode.UnsafeWorkspacePath,
-          path: `${benchmarkPath}.evaluation.hidden_evaluation_files[${fileIndex}].repository_path`,
+          path: `${benchmarkPath}.evaluation.hidden_files[${fileIndex}].repository_path`,
           message: `Hidden evaluation repository path must be relative and stay inside the workspace: ${hiddenFile.repository_path}`,
         });
       }
@@ -89,14 +67,14 @@ export async function validateConfigReferences(
     ] of benchmark.evaluation.hidden_evaluation_directories.entries()) {
       await addDirectoryExistsIssue(
         issues,
-        `${benchmarkPath}.evaluation.hidden_evaluation_directories[${directoryIndex}].shiptest_path`,
+        `${benchmarkPath}.evaluation.hidden_directories[${directoryIndex}].shiptest_path`,
         resolveConfigRelativePath(context.configDir, hiddenDirectory.shiptest_path),
       );
 
       if (!isSafeWorkspacePath(hiddenDirectory.repository_path)) {
         issues.push({
           code: ConfigIssueCode.UnsafeWorkspacePath,
-          path: `${benchmarkPath}.evaluation.hidden_evaluation_directories[${directoryIndex}].repository_path`,
+          path: `${benchmarkPath}.evaluation.hidden_directories[${directoryIndex}].repository_path`,
           message: `Hidden evaluation repository path must be relative and stay inside the workspace: ${hiddenDirectory.repository_path}`,
         });
       }
@@ -105,7 +83,7 @@ export async function validateConfigReferences(
     for (const [patchIndex, patch] of benchmark.evaluation.hidden_evaluation_patches.entries()) {
       await addFileExistsIssue(
         issues,
-        `${benchmarkPath}.evaluation.hidden_evaluation_patches[${patchIndex}].shiptest_path`,
+        `${benchmarkPath}.evaluation.hidden_patches[${patchIndex}].shiptest_path`,
         resolveConfigRelativePath(context.configDir, patch.shiptest_path),
       );
     }
