@@ -365,7 +365,7 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     root,
     configSubdir: "config",
     projectRepo: repoPath,
-    repositoryEnvironment: { validation_commands: { required: ["node --version"] } },
+    environment: { validate: ["node --version"] },
     ...(options.modelAttempts === undefined
       ? {}
       : { runner: { model_attempts: options.modelAttempts } }),
@@ -378,7 +378,7 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
       benchmark("bench", {
         task: "tasks/task.md",
         ...(options.agentExcludePaths
-          ? { agent_context: { exclude_paths: [...options.agentExcludePaths] } }
+          ? { agent_view: { exclude_paths: [...options.agentExcludePaths] } }
           : {}),
       }),
       ...(options.secondBenchmark ? [benchmark("bench-two", { task: "tasks/task-two.md" })] : []),

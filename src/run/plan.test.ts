@@ -23,9 +23,10 @@ describe("run plan", () => {
       "legacy-auth/gpt-5.5",
     ]);
     expect(formatRunPlan(plan)).toContain("Benchmark/model pairs: 3");
-    expect(formatRunPlan(plan)).toContain("Default models: gpt-5.5, sonnet");
+    expect(formatRunPlan(plan)).toContain("Selected models: gpt-5.5, sonnet");
+    expect(formatRunPlan(plan)).toContain("- legacy-auth  tasks/legacy-auth.md  models: gpt-5.5");
     expect(plan.warnings).toContain(
-      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
+      "Prepared baseline cache is created after environment.setup. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
     );
   });
 
@@ -42,7 +43,7 @@ describe("run plan", () => {
       benchmarks: Array.from({ length: benchmarkCountExceedingPreviewLimit }, (_, index) =>
         benchmark(`benchmark-${index + 1}`, {
           task: `.shiptest/tasks/${index + 1}.md`,
-          attempts: index === 0 ? 2 : 1,
+          benchmark_runs: index === 0 ? 2 : 1,
         }),
       ),
     });
@@ -59,11 +60,11 @@ describe("run plan", () => {
       "model-6",
     ]);
     expect(plan.warnings).toEqual([
-      "Prepared baseline cache is created after repository_environment.setup_commands. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
-      "Benchmark 'benchmark-1' configures 2 attempts; this run command currently executes one agent run per benchmark/model.",
+      "Prepared baseline cache is created after environment.setup. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
+      "Benchmark 'benchmark-1' configures 2 benchmark runs; this run command currently executes one run per benchmark/model.",
     ]);
     expect(output).toContain(
-      "Default models: model-1, model-2, model-3, model-4, model-5, ... (+1 more)",
+      "Selected models: model-1, model-2, model-3, model-4, model-5, ... (+1 more)",
     );
     expect(output).toContain("... (+1 more)");
   });
@@ -126,5 +127,7 @@ describe("run plan", () => {
     expect(plan.items).toHaveLength(1);
     expect(plan.items[0]?.benchmark.id).toBe("invoice");
     expect(plan.items[0]?.model.id).toBe("sonnet");
+    expect(formatRunPlan(plan)).toContain("Selected models: sonnet");
+    expect(formatRunPlan(plan)).toContain("- invoice  tasks/invoice.md  models: sonnet");
   });
 });

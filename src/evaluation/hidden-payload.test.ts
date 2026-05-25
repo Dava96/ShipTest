@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ResolvedShiptestConfig } from "../config/schema.js";
 import {
+  type BenchmarkInput,
   benchmark as configBenchmark,
   createResolvedShiptestConfig,
 } from "../test-support/shiptest-config-fixture.js";
@@ -29,7 +30,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_files: [
+        hidden_files: [
           {
             shiptest_path: "hidden/new.txt",
             repository_path: "nested/new.txt",
@@ -62,7 +63,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_files: [
+        hidden_files: [
           {
             shiptest_path: "hidden/file.txt",
             repository_path: "existing.txt",
@@ -82,7 +83,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_files: [
+        hidden_files: [
           {
             shiptest_path: "hidden/file.txt",
             repository_path: "missing.txt",
@@ -119,7 +120,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "fixtures",
@@ -136,7 +137,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "fixtures",
@@ -163,7 +164,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "fixtures",
@@ -193,7 +194,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/missing-directory",
             repository_path: "missing-source",
@@ -208,7 +209,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "existing",
@@ -223,7 +224,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "missing-target",
@@ -238,7 +239,7 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_directories: [
+        hidden_directories: [
           {
             shiptest_path: "hidden/fixtures",
             repository_path: "existing",
@@ -268,8 +269,8 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_patches: [{ shiptest_path: "hidden/change.patch" }],
-        hidden_evaluation_patch_policy: "advanced_allow_collision_risk",
+        hidden_patches: [{ shiptest_path: "hidden/change.patch" }],
+        hidden_patch_policy: "advanced_allow_collision_risk",
       }),
       gitOperations,
     });
@@ -292,8 +293,8 @@ describe("hidden evaluation payload", () => {
       workspacePath: fixture.workspacePath,
       configDir: fixture.configDir,
       evaluation: evaluationConfig({
-        hidden_evaluation_patches: [{ shiptest_path: "hidden/change.patch" }],
-        hidden_evaluation_patch_policy: "advanced_allow_collision_risk",
+        hidden_patches: [{ shiptest_path: "hidden/change.patch" }],
+        hidden_patch_policy: "advanced_allow_collision_risk",
       }),
       gitOperations: failingGitOperations,
     });
@@ -316,7 +317,7 @@ async function createFixture(): Promise<Fixture> {
 }
 
 function evaluationConfig(
-  evaluation: Partial<ResolvedShiptestConfig["benchmarks"][number]["evaluation"]>,
+  evaluation: NonNullable<BenchmarkInput["evaluation"]>,
 ): ResolvedShiptestConfig["benchmarks"][number]["evaluation"] {
   const config = createResolvedShiptestConfig({
     benchmarks: [configBenchmark("bench", { evaluation })],

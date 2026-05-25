@@ -564,6 +564,7 @@ function createBaselineBuildSnapshotOptions(
   };
   const baselineEvaluation = {
     ...context.config.defaults.evaluation,
+    clean_room: true as const,
     hidden_evaluation_files: [],
     hidden_evaluation_directories: [],
     hidden_evaluation_patches: [],

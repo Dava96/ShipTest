@@ -409,15 +409,15 @@ async function createFixture(options: {
   await initializeCleanGitRepo(preparedBaselinePath);
 
   const config = createResolvedShiptestConfig({
-    repositoryEnvironment: {
-      setup_commands: [...(options.setupCommands ?? [])],
-      validation_commands: { required: ["node --version"] },
+    environment: {
+      setup: [...(options.setupCommands ?? [])],
+      validate: ["node --version"],
     },
     benchmarks: [
       configBenchmark("bench", {
         evaluation: {
-          scoring_command: options.scoringCommand,
-          hidden_evaluation_files: [
+          command: options.scoringCommand,
+          hidden_files: [
             {
               shiptest_path: "hidden/check.js",
               repository_path: "hidden/check.js",

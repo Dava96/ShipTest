@@ -89,7 +89,14 @@ describe("buildSnapshot", () => {
         benchmarks: [
           benchmark("invoice", {
             task: "tasks/invoice.md",
-            evaluation: baseSnapshotOptions(fixture).evaluation,
+            evaluation: {
+              hidden_files: baseSnapshotOptions(fixture).evaluation.hidden_evaluation_files,
+              hidden_directories:
+                baseSnapshotOptions(fixture).evaluation.hidden_evaluation_directories,
+              hidden_patches: baseSnapshotOptions(fixture).evaluation.hidden_evaluation_patches,
+              command: baseSnapshotOptions(fixture).evaluation.scoring_command,
+              dependency_changes: baseSnapshotOptions(fixture).evaluation.dependency_changes,
+            },
           }),
         ],
       }),
@@ -267,27 +274,6 @@ describe("buildSnapshot", () => {
         severity: "pass",
       }),
     );
-  });
-
-  it("returns a structured error for unsupported snapshot strategies", async () => {
-    const fixture = await createGitRepoFixture();
-    const result = await buildSnapshot({
-      ...baseSnapshotOptions(fixture),
-      snapshot: {
-        ...baseSnapshotOptions(fixture).snapshot,
-        strategy: "git_archive",
-      },
-    });
-
-    expect(result).toEqual({
-      ok: false,
-      checks: [
-        expect.objectContaining({
-          code: SnapshotCheckCode.StrategyNotImplemented,
-          severity: "error",
-        }),
-      ],
-    });
   });
 
   it("allows unresolved LFS pointer files when configured", async () => {

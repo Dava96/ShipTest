@@ -43,15 +43,17 @@ export async function loadShiptestConfigContext(
     );
   }
 
-  const config = projectRepoWasOmitted(rawConfig)
-    ? {
-        ...parsed.data,
-        project: {
-          ...parsed.data.project,
-          repo: await resolveDefaultProjectRepo(configDir),
-        },
-      }
-    : parsed.data;
+  const resolvedRepo = projectRepoWasOmitted(rawConfig)
+    ? await resolveDefaultProjectRepo(configDir)
+    : resolveConfigRelativePath(configDir, parsed.data.project.repo);
+  const config = {
+    ...parsed.data,
+    project: {
+      ...parsed.data.project,
+      repo: resolvedRepo,
+      name: parsed.data.project.name || path.basename(path.resolve(resolvedRepo)),
+    },
+  };
 
   const context = {
     config,
