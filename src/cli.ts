@@ -167,22 +167,26 @@ program
   .option("--output <path>", "Doctor output directory", path.join(".shiptest", "doctor"))
   .option("--cache-root <path>", "Prepared baseline cache directory")
   .option("--no-cache", "Do not use existing prepared-baseline cache for this doctor run")
+  .option("--concurrency <count>", "Maximum concurrently prepared baseline groups")
   .option("--json", "Print machine-readable JSON")
   .action(
     async (options: {
       readonly benchmark?: string;
       readonly cache?: boolean;
       readonly cacheRoot?: string;
+      readonly concurrency?: string;
       readonly config?: string;
       readonly json?: boolean;
       readonly output: string;
     }) => {
       const context = await loadShiptestConfigContext(options.config);
+      const concurrency = parseOptionalPositiveIntegerOption(options.concurrency, "--concurrency");
       const result = await runDoctor(context, {
         outputRootPath: path.resolve(options.output),
         ...(options.cacheRoot ? { cacheRootPath: path.resolve(options.cacheRoot) } : {}),
         ...(options.benchmark ? { benchmarkId: options.benchmark } : {}),
         noCache: options.cache === false,
+        concurrency: concurrency ?? context.config.runner.concurrency,
         ...(options.json
           ? {}
           : {

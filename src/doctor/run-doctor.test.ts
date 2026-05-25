@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -102,6 +102,122 @@ describe("runDoctor", () => {
 
     const uncached = await runDoctor(context, { outputRootPath, cacheRootPath, noCache: true });
     expect(uncached.benchmark_results[0]?.commands).toHaveLength(1);
+  });
+
+  it("prepares a shared baseline once for benchmarks with the same baseline identity", async () => {
+    const repoPath = await createRepo();
+    const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-doctor-shared-"));
+    const setupCountPath = path.join(root, "setup-count.txt");
+    const setupScriptPath = path.join(root, "increment-setup-count.cjs");
+    await writeFile(
+      setupScriptPath,
+      `const fs = require("node:fs");\nconst p = ${JSON.stringify(setupCountPath)};\nfs.writeFileSync(p, String((Number((fs.existsSync(p) && fs.readFileSync(p, "utf8")) || 0) + 1)));\n`,
+      "utf8",
+    );
+    const fixture = await createShiptestConfigFixture({
+      root,
+      configSubdir: "config",
+      projectRepo: repoPath,
+      repositoryEnvironment: {
+        commands_run_in: "shiptest_environment",
+        source: "local",
+        setup_commands: [`node ${JSON.stringify(setupScriptPath)}`],
+        validation_commands: { required: ['node -e "process.exit(0)"'], advisory: [] },
+      },
+      benchmarks: [
+        benchmark("doctor-smoke", {
+          agent_context: { exclude_paths: ["docs/**"] },
+        }),
+        benchmark("doctor-smoke-two", {
+          task: "tasks/doctor-smoke-two.md",
+          agent_context: { exclude_paths: ["generated/**"] },
+        }),
+      ],
+      files: {
+        "tasks/doctor-smoke.md": "Do the thing.\n",
+        "tasks/doctor-smoke-two.md": "Do the other thing.\n",
+      },
+    });
+    const context = await loadShiptestConfigContext(fixture.configPath);
+    const outputRootPath = path.join(root, ".shiptest", "doctor");
+
+    const result = await runDoctor(context, {
+      outputRootPath,
+      cacheRootPath: path.join(root, ".shiptest", "cache"),
+      concurrency: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.baseline_results).toHaveLength(1);
+    expect(result.baseline_results[0]?.benchmark_ids).toEqual(["doctor-smoke", "doctor-smoke-two"]);
+    expect(await readFile(setupCountPath, "utf8")).toBe("1");
+    expect(result.benchmark_results.map((item) => item.baseline_id)).toEqual([
+      result.baseline_results[0]?.baseline_id,
+      result.baseline_results[0]?.baseline_id,
+    ]);
+    const aggregate = JSON.parse(
+      await readFile(path.join(outputRootPath, "doctor-result.json"), "utf8"),
+    ) as {
+      readonly baseline_results: readonly { readonly baseline_result: string }[];
+      readonly benchmark_results: readonly { readonly baseline_result: string }[];
+    };
+    expect(aggregate.baseline_results[0]?.baseline_result).toMatch(
+      /^baselines\/.+\/baseline-result\.json$/,
+    );
+    expect(aggregate.benchmark_results[0]?.baseline_result).toBe(
+      aggregate.baseline_results[0]?.baseline_result,
+    );
+  });
+
+  it("prepares distinct baseline groups concurrently", async () => {
+    const repoPath = await createRepo();
+    const firstCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    await writeFile(path.join(repoPath, "src", "second.js"), "export const second = 2;\n");
+    await git(["add", "-A"], repoPath);
+    await git(["commit", "-m", "second"], repoPath);
+    const secondCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-doctor-concurrent-"));
+    const activeDir = path.join(root, "active");
+    const maxPath = path.join(root, "max-active.txt");
+    await mkdir(activeDir, { recursive: true });
+    const setupScriptPath = path.join(root, "track-active-setup.cjs");
+    await writeFile(
+      setupScriptPath,
+      `const fs = require("node:fs");\nconst path = require("node:path");\nconst active = ${JSON.stringify(activeDir)};\nconst max = ${JSON.stringify(maxPath)};\nfs.mkdirSync(active, { recursive: true });\nconst marker = path.join(active, process.pid + ".txt");\nfs.writeFileSync(marker, "1");\nconst count = fs.readdirSync(active).length;\nconst prev = fs.existsSync(max) ? Number(fs.readFileSync(max, "utf8")) : 0;\nfs.writeFileSync(max, String(Math.max(prev, count)));\nsetTimeout(() => { fs.rmSync(marker, { force: true }); }, 500);\nsetTimeout(() => process.exit(0), 550);\n`,
+      "utf8",
+    );
+    const setupCommand = `node ${JSON.stringify(setupScriptPath)}`;
+    const fixture = await createShiptestConfigFixture({
+      root,
+      configSubdir: "config",
+      projectRepo: repoPath,
+      repositoryEnvironment: {
+        commands_run_in: "shiptest_environment",
+        source: "local",
+        setup_commands: [setupCommand],
+        validation_commands: { required: ['node -e "process.exit(0)"'], advisory: [] },
+      },
+      benchmarks: [
+        benchmark("doctor-first", { base_commit: firstCommit, task: "tasks/doctor-first.md" }),
+        benchmark("doctor-second", { base_commit: secondCommit, task: "tasks/doctor-second.md" }),
+      ],
+      files: {
+        "tasks/doctor-first.md": "Do the first thing.\n",
+        "tasks/doctor-second.md": "Do the second thing.\n",
+      },
+    });
+    const context = await loadShiptestConfigContext(fixture.configPath);
+
+    const result = await runDoctor(context, {
+      outputRootPath: path.join(root, ".shiptest", "doctor"),
+      cacheRootPath: path.join(root, ".shiptest", "cache"),
+      concurrency: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.baseline_results).toHaveLength(2);
+    expect(await readFile(maxPath, "utf8")).toBe("2");
+    await rm(activeDir, { force: true, recursive: true });
   });
 
   it("fails fast on required validation failure and does not prepare a baseline", async () => {

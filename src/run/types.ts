@@ -21,6 +21,7 @@ export type AttemptQualitySignalId =
   | "agent_reported_errors"
   | "agent_reported_errors_without_usage"
   | "empty_submission_patch"
+  | "excluded_path_modified"
   | "required_file_changes_missing";
 
 export type AttemptQualitySignalSeverity = "warning" | "error";
@@ -29,6 +30,7 @@ export interface AttemptQualitySignal {
   readonly id: AttemptQualitySignalId;
   readonly severity: AttemptQualitySignalSeverity;
   readonly message: string;
+  readonly paths?: readonly string[];
 }
 
 export interface RunPlanItem {

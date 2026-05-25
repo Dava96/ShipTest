@@ -21,8 +21,10 @@ import {
   safeRemoveDescendant,
   samePath,
 } from "../utils/filesystem.js";
+import { sha256Json } from "../utils/hash.js";
 import { type DoctorCheck, DoctorCheckCode } from "./check-codes.js";
 import {
+  type DoctorBaselineResult,
   type DoctorBenchmarkResult,
   type DoctorCommandResult,
   DoctorDefaults,
@@ -33,10 +35,20 @@ import {
 } from "./types.js";
 
 const DefaultShiptestVersion = "0.1.0";
+const BaselineIdentityHashLength = 12;
 
 type MutableDoctorTimings = {
   -readonly [Key in keyof DoctorTimings]: DoctorTimings[Key];
 };
+
+interface DoctorBaselineGroup {
+  readonly baseline_id: string;
+  readonly identity_hash: string;
+  readonly base_ref: string;
+  readonly representative_benchmark_id: string;
+  readonly benchmark_ids: readonly string[];
+  readonly identity: unknown;
+}
 
 export async function runDoctor(
   context: ShiptestConfigContext,
@@ -61,19 +73,49 @@ export async function runDoctor(
 
   await mkdir(outputRootPath, { recursive: true });
   const workspaceRootPath = path.join(os.tmpdir(), "shiptest-doctor-work", randomUUID());
-  const benchmarkResults: DoctorBenchmarkResult[] = [];
-  for (const benchmark of benchmarks) {
-    const benchmarkResult = await runBenchmarkDoctor(context, benchmark.id, {
-      ...options,
-      outputRootPath,
-      workspaceRootPath,
-    });
-    benchmarkResults.push(benchmarkResult);
+  const baselineGroups = createDoctorBaselineGroups(context, benchmarks, options);
+  const baselineResults = await runOrderedConcurrent(
+    baselineGroups,
+    options.concurrency ?? 1,
+    async (baselineGroup) => {
+      const baselineResult = await runBaselineDoctor(context, baselineGroup, {
+        ...options,
+        outputRootPath,
+        workspaceRootPath,
+      });
+      await writeBaselineDoctorResult(outputRootPath, baselineResult);
+      return baselineResult;
+    },
+  );
+  const baselineResultsById = new Map(
+    baselineResults.map((baselineResult) => [baselineResult.baseline_id, baselineResult]),
+  );
+  const baselineGroupByBenchmarkId = new Map<string, DoctorBaselineGroup>();
+  for (const baselineGroup of baselineGroups) {
+    for (const benchmarkId of baselineGroup.benchmark_ids) {
+      baselineGroupByBenchmarkId.set(benchmarkId, baselineGroup);
+    }
+  }
+  const benchmarkResults = benchmarks.map((benchmark) => {
+    const baselineGroup = baselineGroupByBenchmarkId.get(benchmark.id);
+    if (!baselineGroup) {
+      throw new Error(`Baseline group missing for benchmark '${benchmark.id}'.`);
+    }
+    const baselineResult = baselineResultsById.get(baselineGroup.baseline_id);
+    if (!baselineResult) {
+      throw new Error(`Baseline result missing for benchmark '${benchmark.id}'.`);
+    }
+    return createBenchmarkDoctorResultFromBaseline(benchmark.id, baselineResult);
+  });
+  for (const benchmarkResult of benchmarkResults) {
     await writeBenchmarkDoctorResult(outputRootPath, benchmarkResult);
   }
 
   const result: DoctorResult = {
-    ok: benchmarkResults.every((benchmarkResult) => benchmarkResult.ok),
+    ok:
+      baselineResults.every((baselineResult) => baselineResult.ok) &&
+      benchmarkResults.every((benchmarkResult) => benchmarkResult.ok),
+    baseline_results: baselineResults,
     benchmark_results: benchmarkResults,
   };
   await writeFile(
@@ -83,11 +125,12 @@ export async function runDoctor(
   return result;
 }
 
-async function runBenchmarkDoctor(
+async function runBaselineDoctor(
   context: ShiptestConfigContext,
-  benchmarkId: string,
+  baselineGroup: DoctorBaselineGroup,
   options: DoctorOptions & { readonly workspaceRootPath: string },
-): Promise<DoctorBenchmarkResult> {
+): Promise<DoctorBaselineResult> {
+  const benchmarkId = baselineGroup.representative_benchmark_id;
   const benchmark = context.config.benchmarks.find((candidate) => candidate.id === benchmarkId);
   if (!benchmark) {
     throw new Error(`Unknown benchmark id: ${benchmarkId}`);
@@ -95,21 +138,28 @@ async function runBenchmarkDoctor(
 
   const startedAt = Date.now();
   const timings = createEmptyTimings();
-  const benchmarkOutputPath = benchmarkDoctorOutputPath(options.outputRootPath, benchmarkId);
-  if (await pathExists(benchmarkOutputPath)) {
-    await safeRemoveDescendant(options.outputRootPath, benchmarkOutputPath);
+  const baselineOutputPath = baselineDoctorOutputPath(
+    options.outputRootPath,
+    baselineGroup.baseline_id,
+  );
+  if (await pathExists(baselineOutputPath)) {
+    await safeRemoveDescendant(options.outputRootPath, baselineOutputPath);
   }
-  await mkdir(benchmarkOutputPath, { recursive: true });
+  await mkdir(baselineOutputPath, { recursive: true });
 
   const checks: Array<DoctorCheck | SnapshotCheck | PreparedBaselineCheck> = [
     {
       code: DoctorCheckCode.BenchmarkStarted,
       severity: CheckSeverity.Pass,
-      message: `Started doctor checks for benchmark '${benchmarkId}'.`,
+      message: `Started doctor checks for baseline '${baselineGroup.baseline_id}'.`,
     },
   ];
   const commands: DoctorCommandResult[] = [];
-  const benchmarkWorkspacePath = path.join(options.workspaceRootPath, benchmarkId);
+  const benchmarkWorkspacePath = path.join(
+    options.workspaceRootPath,
+    "baselines",
+    baselineGroup.baseline_id,
+  );
   const snapshotOutputPath = path.join(benchmarkWorkspacePath, "snapshot");
   const setupWorkspacePath = path.join(benchmarkWorkspacePath, "setup-workspace");
   const preparedWorkspacePath = path.join(benchmarkWorkspacePath, "prepared-baseline");
@@ -132,7 +182,8 @@ async function runBenchmarkDoctor(
     });
     emitProgress(options, benchmarkId, "failed", "Snapshot gate failed.");
     return {
-      benchmark_id: benchmarkId,
+      baseline_id: baselineGroup.baseline_id,
+      benchmark_ids: baselineGroup.benchmark_ids,
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       commands,
@@ -162,7 +213,7 @@ async function runBenchmarkDoctor(
         preparedWorkspacePath,
         cacheRootPath,
         cacheKeyInput,
-        cacheLabel: benchmarkId,
+        cacheLabel: baselineGroup.baseline_id,
       }),
     );
     checks.push(...cacheRestoreResult.checks);
@@ -175,7 +226,8 @@ async function runBenchmarkDoctor(
         paths: [cacheRestoreResult.cache_entry_path],
       });
       return {
-        benchmark_id: benchmarkId,
+        baseline_id: baselineGroup.baseline_id,
+        benchmark_ids: baselineGroup.benchmark_ids,
         ok: true,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -205,7 +257,9 @@ async function runBenchmarkDoctor(
     });
     emitProgress(options, benchmarkId, "failed", "Repository environment is not supported yet.");
     return {
-      benchmark_id: benchmarkId,
+      baseline_id: baselineGroup.baseline_id,
+
+      benchmark_ids: baselineGroup.benchmark_ids,
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       snapshot_manifest: snapshotResult.manifest,
@@ -236,7 +290,9 @@ async function runBenchmarkDoctor(
     if (doctorCommandResult.exit_code !== 0) {
       emitProgress(options, benchmarkId, "failed", `Setup command failed: ${command}`);
       return {
-        benchmark_id: benchmarkId,
+        baseline_id: baselineGroup.baseline_id,
+
+        benchmark_ids: baselineGroup.benchmark_ids,
         ok: false,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -277,7 +333,9 @@ async function runBenchmarkDoctor(
         `Required validation command failed: ${command}`,
       );
       return {
-        benchmark_id: benchmarkId,
+        baseline_id: baselineGroup.baseline_id,
+
+        benchmark_ids: baselineGroup.benchmark_ids,
         ok: false,
         timings_ms: finishTimings(timings, startedAt),
         snapshot_manifest: snapshotResult.manifest,
@@ -321,7 +379,7 @@ async function runBenchmarkDoctor(
       snapshotManifest: snapshotResult.manifest,
       cacheEnabled,
       ...(cacheEnabled ? { cacheRootPath } : {}),
-      cacheLabel: benchmarkId,
+      cacheLabel: baselineGroup.baseline_id,
       cacheKeyInput,
     }),
   );
@@ -329,7 +387,9 @@ async function runBenchmarkDoctor(
   if (!preparedBaselineResult.ok) {
     emitProgress(options, benchmarkId, "failed", "Prepared baseline gate failed.");
     return {
-      benchmark_id: benchmarkId,
+      baseline_id: baselineGroup.baseline_id,
+
+      benchmark_ids: baselineGroup.benchmark_ids,
       ok: false,
       timings_ms: finishTimings(timings, startedAt),
       snapshot_manifest: snapshotResult.manifest,
@@ -347,7 +407,9 @@ async function runBenchmarkDoctor(
 
   emitProgress(options, benchmarkId, "passed", "Doctor checks passed.");
   return {
-    benchmark_id: benchmarkId,
+    baseline_id: baselineGroup.baseline_id,
+
+    benchmark_ids: baselineGroup.benchmark_ids,
     ok: true,
     timings_ms: finishTimings(timings, startedAt),
     snapshot_manifest: snapshotResult.manifest,
@@ -376,6 +438,19 @@ async function buildSnapshotSafely(options: BuildSnapshotOptions) {
   }
 }
 
+async function writeBaselineDoctorResult(
+  outputRootPath: string,
+  baselineResult: DoctorBaselineResult,
+): Promise<void> {
+  const outputPath = baselineDoctorOutputPath(outputRootPath, baselineResult.baseline_id);
+  await mkdir(outputPath, { recursive: true });
+  await writeFile(
+    path.join(outputPath, "baseline-result.json"),
+    `${JSON.stringify(baselineResult, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 async function writeBenchmarkDoctorResult(
   outputRootPath: string,
   benchmarkResult: DoctorBenchmarkResult,
@@ -392,9 +467,18 @@ async function writeBenchmarkDoctorResult(
 function createDoctorResultIndex(result: DoctorResult): object {
   return {
     ok: result.ok,
+    baseline_results: result.baseline_results.map((baselineResult) => ({
+      baseline_id: baselineResult.baseline_id,
+      benchmark_ids: baselineResult.benchmark_ids,
+      ok: baselineResult.ok,
+      timings_ms: baselineResult.timings_ms,
+      baseline_result: baselineResultRelativePath(baselineResult.baseline_id),
+    })),
     benchmark_results: result.benchmark_results.map((benchmarkResult) => ({
       benchmark_id: benchmarkResult.benchmark_id,
       ok: benchmarkResult.ok,
+      baseline_id: benchmarkResult.baseline_id,
+      baseline_result: benchmarkResult.baseline_result,
       timings_ms: benchmarkResult.timings_ms,
       doctor_result: path
         .join("benchmarks", sanitizePathSegment(benchmarkResult.benchmark_id), "doctor-result.json")
@@ -403,8 +487,45 @@ function createDoctorResultIndex(result: DoctorResult): object {
   };
 }
 
+function createBenchmarkDoctorResultFromBaseline(
+  benchmarkId: string,
+  baselineResult: DoctorBaselineResult,
+): DoctorBenchmarkResult {
+  return {
+    benchmark_id: benchmarkId,
+    ok: baselineResult.ok,
+    baseline_id: baselineResult.baseline_id,
+    baseline_result: baselineResultRelativePath(baselineResult.baseline_id),
+    timings_ms: baselineResult.timings_ms,
+    ...(baselineResult.snapshot_manifest
+      ? { snapshot_manifest: baselineResult.snapshot_manifest }
+      : {}),
+    ...(baselineResult.prepared_baseline_path
+      ? { prepared_baseline_path: baselineResult.prepared_baseline_path }
+      : {}),
+    ...(baselineResult.prepared_baseline_metadata
+      ? { prepared_baseline_metadata: baselineResult.prepared_baseline_metadata }
+      : {}),
+    ...(baselineResult.prepared_baseline_timings_ms
+      ? { prepared_baseline_timings_ms: baselineResult.prepared_baseline_timings_ms }
+      : {}),
+    commands: baselineResult.commands,
+    checks: baselineResult.checks,
+  };
+}
+
 function benchmarkDoctorOutputPath(outputRootPath: string, benchmarkId: string): string {
   return path.join(outputRootPath, "benchmarks", sanitizePathSegment(benchmarkId));
+}
+
+function baselineDoctorOutputPath(outputRootPath: string, baselineId: string): string {
+  return path.join(outputRootPath, "baselines", sanitizePathSegment(baselineId));
+}
+
+function baselineResultRelativePath(baselineId: string): string {
+  return path
+    .join("baselines", sanitizePathSegment(baselineId), "baseline-result.json")
+    .replaceAll(path.sep, "/");
 }
 
 function sanitizePathSegment(value: string): string {
@@ -422,18 +543,89 @@ function createBuildSnapshotOptions(
     throw new Error(`Unknown benchmark id: ${benchmarkId}`);
   }
 
+  return createBaselineBuildSnapshotOptions(
+    context,
+    benchmark.base_commit,
+    outputRootPath,
+    snapshotSource,
+  );
+}
+
+function createBaselineBuildSnapshotOptions(
+  context: ShiptestConfigContext,
+  baseCommit: string | undefined,
+  outputRootPath: string,
+  snapshotSource: BuildSnapshotOptions["source"] = "git_commit",
+): BuildSnapshotOptions {
+  const baselineAgentContext = {
+    exclude_paths: [],
+    instruction_files: [],
+    load_context_files: false,
+  };
+  const baselineEvaluation = {
+    ...context.config.defaults.evaluation,
+    hidden_evaluation_files: [],
+    hidden_evaluation_directories: [],
+    hidden_evaluation_patches: [],
+    protected_paths: [],
+  };
   return {
     source_repo_path: resolveConfigRelativePath(context.configDir, context.config.project.repo),
-    ...(snapshotSource === "git_commit" && benchmark.base_commit
-      ? { base_commit: benchmark.base_commit }
-      : {}),
+    ...(snapshotSource === "git_commit" && baseCommit ? { base_commit: baseCommit } : {}),
     output_root_path: path.resolve(outputRootPath),
     shiptest_config_dir: context.configDir,
     snapshot: context.config.snapshot,
-    agent_context: benchmark.agent_context,
-    evaluation: benchmark.evaluation,
+    agent_context: baselineAgentContext,
+    evaluation: baselineEvaluation,
     source: snapshotSource,
   };
+}
+
+function createDoctorBaselineGroups(
+  context: ShiptestConfigContext,
+  benchmarks: readonly ShiptestConfigContext["config"]["benchmarks"][number][],
+  options: Pick<DoctorOptions, "shiptestVersion" | "snapshotSource">,
+): DoctorBaselineGroup[] {
+  const groups = new Map<string, DoctorBaselineGroup>();
+  for (const benchmark of benchmarks) {
+    const baseRef =
+      options.snapshotSource === "working_tree"
+        ? "working-tree"
+        : (benchmark.base_commit ?? "head");
+    const identity = {
+      source: options.snapshotSource ?? "git_commit",
+      base_commit:
+        options.snapshotSource === "working_tree" ? undefined : (benchmark.base_commit ?? "HEAD"),
+      snapshot: context.config.snapshot,
+      repository_environment: context.config.repository_environment,
+      prepared_baseline: context.config.shiptest_runner.prepared_baseline,
+      shiptest_version: options.shiptestVersion ?? DefaultShiptestVersion,
+    };
+    const identityHash = sha256Json(identity).slice(0, BaselineIdentityHashLength);
+    const baselineId = `${formatBaselineBaseRef(baseRef)}--${identityHash}`;
+    const existing = groups.get(identityHash);
+    if (existing) {
+      groups.set(identityHash, {
+        ...existing,
+        benchmark_ids: [...existing.benchmark_ids, benchmark.id],
+      });
+      continue;
+    }
+    groups.set(identityHash, {
+      baseline_id: baselineId,
+      identity_hash: identityHash,
+      base_ref: baseRef,
+      representative_benchmark_id: benchmark.id,
+      benchmark_ids: [benchmark.id],
+      identity,
+    });
+  }
+  return [...groups.values()];
+}
+
+function formatBaselineBaseRef(baseRef: string): string {
+  const sanitized = sanitizePathSegment(baseRef);
+  return /^[a-f0-9]{12,40}$/i.test(sanitized) ? sanitized.slice(0, 7) : sanitized.slice(0, 40);
 }
 
 function createEmptyTimings(): MutableDoctorTimings {
@@ -466,6 +658,28 @@ function finishTimings(timings: MutableDoctorTimings, startedAt: number): Doctor
     ...timings,
     total_ms: Date.now() - startedAt,
   };
+}
+
+async function runOrderedConcurrent<T, Result>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(items[index] as T);
+      }
+    }),
+  );
+
+  return results;
 }
 
 function commandCheck(

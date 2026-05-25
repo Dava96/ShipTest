@@ -31,9 +31,11 @@ describe("buildSnapshot", () => {
     }
 
     await expect(readFile(path.join(result.agent_snapshot_path, ".git"))).rejects.toThrow();
-    await expect(readFile(path.join(result.agent_snapshot_path, "AGENTS.md"))).rejects.toThrow();
+    await expect(
+      readFile(path.join(result.agent_snapshot_path, "AGENTS.md"), "utf8"),
+    ).resolves.toContain("Use project conventions");
     expect(result.manifest.files.map((file) => file.repository_path)).toContain("src/index.ts");
-    expect(result.manifest.files.map((file) => file.repository_path)).not.toContain("AGENTS.md");
+    expect(result.manifest.files.map((file) => file.repository_path)).toContain("AGENTS.md");
     expect(
       result.checks.some((check) => check.code === SnapshotCheckCode.RealGitMetadataAbsent),
     ).toBe(true);
@@ -190,7 +192,7 @@ describe("buildSnapshot", () => {
     );
   });
 
-  it("fails when hidden ShipTest assets inside the source repo are visible", async () => {
+  it("removes hidden ShipTest assets inside the source repo by default", async () => {
     const fixture = await createGitRepoFixture();
     await mkdir(path.join(fixture.repoPath, ".shiptest", "hidden"), { recursive: true });
     await writeFile(
@@ -217,12 +219,11 @@ describe("buildSnapshot", () => {
       },
     });
 
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
     expect(result.checks).toContainEqual(
       expect.objectContaining({
-        code: SnapshotCheckCode.HiddenEvaluationShiptestPathVisible,
-        severity: "error",
-        paths: [".shiptest/hidden/test.ts"],
+        code: SnapshotCheckCode.HiddenShiptestAssetsAbsent,
+        severity: "pass",
       }),
     );
   });

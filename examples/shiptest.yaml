@@ -257,6 +257,22 @@ benchmarks:
     evaluation:
       scoring_command: npm run test:run -- src/reporting/html-report.test.ts src/reporting/shared/report-shared.test.ts src/run/run.test.ts
 
+  - id: refactor-prepared-baseline-agent-view-separation
+    type: implementation
+    base_commit: f5c2ced
+    task: tasks/refactor-prepared-baseline-agent-view-separation.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/snapshot/snapshot.test.ts src/run/run.test.ts
+
+  - id: add-concurrent-shared-baseline-doctor-prep
+    type: implementation
+    base_commit: f5c2ced
+    task: tasks/add-concurrent-shared-baseline-doctor-prep.md
+    attempts: 1
+    evaluation:
+      scoring_command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
+
   - id: shiptest-smoke
     type: implementation
     base_commit: f5c2ced
