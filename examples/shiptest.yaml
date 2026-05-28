@@ -74,25 +74,21 @@ benchmarks:
     - id: optional-project-repo-default
       base_commit: fe58898
       task: tasks/optional-project-repo-default.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/config/config.test.ts
     - id: refactor-test-config-fixture-introduction
       base_commit: feb21f0
       task: tasks/refactor-test-config-fixture-introduction.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/config/config.test.ts
     - id: refactor-test-config-fixture-runner-adoption
       base_commit: 2a7e59a
       task: tasks/refactor-test-config-fixture-runner-adoption.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/plan.test.ts src/run/run.test.ts
     - id: refactor-test-config-fixture-suite-adoption
       base_commit: f1e0dc5
       task: tasks/refactor-test-config-fixture-suite-adoption.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/agent/pi-json-harness.test.ts
           src/config/config.test.ts src/doctor/run-doctor.test.ts
@@ -102,36 +98,29 @@ benchmarks:
     - id: refactor-run-directory-layout
       base_commit: dd611d7
       task: tasks/refactor-run-directory-layout.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/run-layout.test.ts src/run/run.test.ts
     - id: refactor-resettable-workspace-pool
       base_commit: e0aabd9
       task: tasks/refactor-resettable-workspace-pool.md
-      benchmark_runs: 1
     - id: refactor-pi-model-availability-precheck
       base_commit: 6c79bf0
       task: tasks/refactor-pi-model-availability-precheck.md
-      benchmark_runs: 1
     - id: report-total-estimated-cost
       base_commit: 6f63300
       task: tasks/report-total-estimated-cost.md
-      benchmark_runs: 1
     - id: surface-prepared-baseline-normalization-warning
       base_commit: e1d061d
       task: tasks/surface-prepared-baseline-normalization-warning.md
-      benchmark_runs: 1
     - id: add-draft-working-tree-run-mode
       base_commit: 4dc3a0d
       task: tasks/add-draft-working-tree-run-mode.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/draft-mode.test.ts src/run/run.test.ts
           src/snapshot/snapshot.test.ts src/reporting/html-report.test.ts
     - id: add-configurable-tool-usage-reporting
       base_commit: 35fe97e
       task: tasks/add-configurable-tool-usage-reporting.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/agent/pi-json-harness.test.ts
           src/config/config.test.ts src/run/run.test.ts
@@ -139,20 +128,17 @@ benchmarks:
     - id: refactor-doctor-per-benchmark-artifacts
       base_commit: 4c7f2fd
       task: tasks/refactor-doctor-per-benchmark-artifacts.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
     - id: write-incremental-results-and-report
       base_commit: 7adb559
       task: tasks/write-incremental-results-and-report.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/run.test.ts
           src/reporting/html-report.test.ts
     - id: split-token-budget-and-reporting
       base_commit: 793221b
       task: tasks/split-token-budget-and-reporting.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/agent/pi-events.test.ts
           src/agent/pi-json-harness.test.ts src/reporting/html-report.test.ts
@@ -160,57 +146,48 @@ benchmarks:
     - id: stream-pi-output-with-bounded-parsing
       base_commit: 569c68d
       task: tasks/stream-pi-output-with-bounded-parsing.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/agent/pi-json-harness.test.ts
           src/agent/pi-events.test.ts
     - id: add-config-backed-model-attempt-concurrency-scheduler
       base_commit: f5c2ced
       task: tasks/add-config-backed-model-attempt-concurrency-scheduler.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/attempt-scheduler.test.ts
           src/run/run.test.ts src/run/plan.test.ts src/config/config.test.ts
     - id: fail-zero-token-agent-attempts
       base_commit: 90fbe18
       task: tasks/fail-zero-token-agent-attempts.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/run.test.ts
           src/agent/pi-json-harness.test.ts
     - id: require-file-changes-for-code-benchmarks
       base_commit: 90fbe18
       task: tasks/require-file-changes-for-code-benchmarks.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/run.test.ts
     - id: skip-evaluation-for-invalid-agent-submissions
       base_commit: 90fbe18
       task: tasks/skip-evaluation-for-invalid-agent-submissions.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/run/run.test.ts
     - id: fix-noop-report-metrics-and-cost-display
       base_commit: 1503d73
       task: tasks/fix-noop-report-metrics-and-cost-display.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/reporting/html-report.test.ts
           src/reporting/shared/report-shared.test.ts src/run/run.test.ts
     - id: refactor-prepared-baseline-agent-view-separation
       base_commit: 18109bb
       task: tasks/refactor-prepared-baseline-agent-view-separation.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/snapshot/snapshot.test.ts src/run/run.test.ts
     - id: add-concurrent-shared-baseline-doctor-prep
       base_commit: 18109bb
       task: tasks/add-concurrent-shared-baseline-doctor-prep.md
-      benchmark_runs: 1
       evaluation:
         command: npm run test:run -- src/doctor/run-doctor.test.ts src/run/run.test.ts
     - id: shiptest-smoke
       base_commit: f5c2ced
       task: tasks/shiptest-smoke.md
-      benchmark_runs: 1
   replay_change: []

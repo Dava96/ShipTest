@@ -30,7 +30,7 @@ describe("run plan", () => {
     );
   });
 
-  it("reports warnings, truncates long lists, and falls back to all models without defaults", () => {
+  it("truncates long lists and falls back to all models without defaults", () => {
     const formatRunPlanPreviewLimit = 20;
     const modelCountExceedingPreviewLimit = 6;
     const benchmarkCountExceedingPreviewLimit = formatRunPlanPreviewLimit + 1;
@@ -43,7 +43,6 @@ describe("run plan", () => {
       benchmarks: Array.from({ length: benchmarkCountExceedingPreviewLimit }, (_, index) =>
         benchmark(`benchmark-${index + 1}`, {
           task: `.shiptest/tasks/${index + 1}.md`,
-          benchmark_runs: index === 0 ? 2 : 1,
         }),
       ),
     });
@@ -61,7 +60,6 @@ describe("run plan", () => {
     ]);
     expect(plan.warnings).toEqual([
       "Prepared baseline cache is created after environment.setup. Include formatters, code generation, or other normalization commands there so cached baselines stay clean for model verification.",
-      "Benchmark 'benchmark-1' configures 2 benchmark runs; this run command currently executes one run per benchmark/model.",
     ]);
     expect(output).toContain(
       "Selected models: model-1, model-2, model-3, model-4, model-5, ... (+1 more)",

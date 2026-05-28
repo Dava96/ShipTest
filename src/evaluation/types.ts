@@ -1,6 +1,5 @@
 import type { CheckSeverity } from "../checks/severity.js";
 import type { ResolvedShiptestConfig } from "../config/schema.js";
-import type { CommandResult } from "../results/types.js";
 import type { Submission } from "../submission/types.js";
 import type { EvaluationCheckCode } from "./check-codes.js";
 
@@ -44,6 +43,14 @@ export interface EvaluationSignal {
   readonly message: string;
   readonly weight: number;
   readonly paths?: readonly string[];
+}
+
+export interface CommandResult {
+  readonly command: string;
+  readonly exit_code: number | null;
+  readonly duration_ms: number;
+  readonly stdout_artifact?: string;
+  readonly stderr_artifact?: string;
 }
 
 export interface CleanRoomEvaluationOptions {

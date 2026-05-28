@@ -41,6 +41,7 @@ lerna-debug.log*
 .shiptest/cache/
 .shiptest/workspaces/
 .shiptest/tmp/
+.shiptest/doctor/
 /reports/
 /results/
 

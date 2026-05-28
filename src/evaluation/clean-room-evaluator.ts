@@ -5,7 +5,6 @@ import { minimatch } from "minimatch";
 import { CheckSeverity } from "../checks/severity.js";
 import { DependencyChangePolicy, EvaluationPolicyPreset } from "../config/schema-values.js";
 import { runShellCommand } from "../execution/run-command.js";
-import type { CommandResult } from "../results/types.js";
 import { applySubmissionDiff } from "../submission/apply.js";
 import {
   prepareCopiedWorkspace,
@@ -18,6 +17,7 @@ import type {
   CleanRoomEvaluationResult,
   CleanRoomEvaluationStatus,
   CleanRoomEvaluationVerdict,
+  CommandResult,
   EvaluationCheck,
   EvaluationSignal,
 } from "./types.js";

@@ -381,7 +381,6 @@ const BenchmarkCaseSchema = z
     id,
     base_commit: nonEmptyString.optional(),
     task: nonEmptyString,
-    benchmark_runs: positiveInteger.max(SchemaLimits.BenchmarkAttemptsMax).default(1),
     models: z.array(id).optional(),
     limits: PartialLimitsSchema.optional(),
     agent_view: PartialAgentViewSchema.optional(),

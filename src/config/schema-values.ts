@@ -1,5 +1,4 @@
 export const SchemaLimits = {
-  BenchmarkAttemptsMax: 1_000,
   ConfigSchemaVersion: 1,
   MaxAttemptMinsDefault: 30,
   MaxAttemptMinsMax: 24 * 60,
