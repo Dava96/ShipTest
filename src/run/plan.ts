@@ -32,11 +32,6 @@ export function createRunPlan(options: {
     if (benchmarkFilter.size > 0 && !benchmarkFilter.has(benchmark.id)) {
       continue;
     }
-    if (benchmark.benchmark_runs > 1) {
-      warnings.push(
-        `Benchmark '${benchmark.id}' configures ${benchmark.benchmark_runs} benchmark runs; this run command currently executes one run per benchmark/model.`,
-      );
-    }
     const benchmarkModelIds = benchmark.models ?? options.config.models.map((model) => model.id);
     for (const modelId of benchmarkModelIds) {
       if (modelFilter.size > 0 && !modelFilter.has(modelId)) {

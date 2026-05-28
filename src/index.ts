@@ -91,6 +91,7 @@ export type {
   CleanRoomEvaluationResult,
   CleanRoomEvaluationStatus,
   CleanRoomEvaluationVerdict,
+  CommandResult,
   EvaluationCheck,
   EvaluationSignal,
   EvaluationSignalId,
@@ -98,19 +99,6 @@ export type {
 } from "./evaluation/types.js";
 export type { RunShellCommandOptions, ShellCommandResult } from "./execution/run-command.js";
 export { runShellCommand } from "./execution/run-command.js";
-export type {
-  AttemptResult,
-  BenchmarkResult,
-  CommandResult,
-  EvaluationResult,
-  EvaluationStatus,
-  HumanReviewResult,
-  HumanReviewStatus,
-  ModelResult,
-  ShiptestRunnerResult,
-  ShiptestRunResult,
-  SnapshotResult,
-} from "./results/types.js";
 export { createRunPlan, formatRunPlan } from "./run/plan.js";
 export { regenerateReport, runShiptest } from "./run/run.js";
 export type {
