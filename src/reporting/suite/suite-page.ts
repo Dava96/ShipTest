@@ -12,6 +12,7 @@ import {
   renderBarChart,
   renderBenchmarkRows,
   renderMetricCards,
+  renderOutcomeMatrix,
   renderRunInsightCards,
   speedBars,
 } from "../html-report-components.js";
@@ -41,8 +42,9 @@ ${reportStyles}
   ${renderTopbar({
     ariaLabel: "Report navigation",
     nav: [
-      { label: "Model Comparison", href: "#model-comparison", active: true },
+      { label: "Matrix", href: "#outcome-matrix", active: true },
       { label: "Models", href: modelsOverviewReportPath() },
+      { label: "Charts", href: "#model-comparison" },
       { label: "Benchmarks", href: "#benchmarks" },
       { label: "Artifacts", href: "#artifacts" },
     ],
@@ -63,6 +65,11 @@ ${reportStyles}
   </section>
 
   ${renderMetricCards(results, attempts, pendingCount)}
+
+  <section id="outcome-matrix">
+    <div class="section-head"><div class="section-title">Outcome matrix</div><div class="muted small">Benchmark × model cells. Click a cell to inspect patch, logs, telemetry, and evaluation evidence.</div></div>
+    ${renderOutcomeMatrix(results, attempts)}
+  </section>
 
   <section id="model-comparison">
     <div class="section-head">

@@ -642,6 +642,240 @@ function renderBreakdownTable(
   return `<div class="breakdown-table"><table><caption>${escapeHtml(caption)}</caption><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr id="model-${escapeAttribute(slugify(row.modelId))}" data-model-row="${escapeAttribute(slugify(row.modelId))}">${row.cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
+interface OutcomeMatrixCell {
+  readonly status: string;
+  readonly label: string;
+  readonly meta: string;
+  readonly title: string;
+  readonly href?: string;
+  readonly attempts: readonly AttemptReport[];
+}
+
+export function renderOutcomeMatrix(
+  results: RunResults,
+  attempts: readonly AttemptReport[],
+): string {
+  const modelIds = [...new Set(attempts.map((attempt) => attempt.model.id))];
+  if (modelIds.length === 0) {
+    return `<div class="outcome-matrix-panel"><div class="quality-empty">No model attempts have been written yet.</div></div>`;
+  }
+  const rows = results.benchmark_results.map((benchmark) => {
+    const benchmarkAttemptPaths = new Set(benchmark.attempts);
+    const benchmarkAttempts = attempts.filter(
+      (attempt) =>
+        attempt.benchmark_id === benchmark.benchmark_id ||
+        (attempt.artifacts.attempt_json !== undefined &&
+          benchmarkAttemptPaths.has(attempt.artifacts.attempt_json)),
+    );
+    const cells = modelIds.map((modelId) =>
+      outcomeMatrixCell(
+        benchmark.benchmark_id,
+        modelId,
+        benchmarkAttempts.filter((attempt) => attempt.model.id === modelId),
+      ),
+    );
+    const statuses = cells.map((cell) => cell.status);
+    const attemptedCells = cells.filter((cell) => cell.status !== "not_run");
+    const uniqueStatuses = new Set(statuses);
+    const passCount = cells.filter((cell) => cell.status === "passed").length;
+    const reviewCount = cells.filter((cell) => cell.status === "needs_review").length;
+    const failureCount = cells.filter((cell) => isProblemMatrixStatus(cell.status)).length;
+    const disagreement = uniqueStatuses.size > 1;
+    const allPassed = attemptedCells.length > 0 && passCount === attemptedCells.length;
+    const rowSearch = [benchmark.benchmark_id, ...modelIds, ...statuses].join(" ").toLowerCase();
+    return {
+      benchmarkId: benchmark.benchmark_id,
+      cells,
+      passCount,
+      reviewCount,
+      failureCount,
+      attemptedCount: attemptedCells.length,
+      disagreement,
+      allPassed,
+      rowSearch,
+    };
+  });
+  const disagreementCount = rows.filter((row) => row.disagreement).length;
+  const reviewCount = rows.filter((row) => row.reviewCount > 0).length;
+  const failureCount = rows.filter((row) => row.failureCount > 0).length;
+  const allPassedCount = rows.filter((row) => row.allPassed).length;
+
+  return `<div class="outcome-matrix-panel" data-outcome-matrix>
+    <div class="matrix-toolbar">
+      <label class="matrix-search"><span>Search</span><input type="search" data-matrix-search placeholder="Search benchmarks or models…"></label>
+      <div class="matrix-filter-group" role="group" aria-label="Outcome matrix filters">
+        ${matrixFilterButton("all", "All", rows.length, true)}
+        ${matrixFilterButton("disagreements", "Disagreements", disagreementCount)}
+        ${matrixFilterButton("review", "Needs review", reviewCount)}
+        ${matrixFilterButton("failures", "Failures", failureCount)}
+        ${matrixFilterButton("passed", "All passed", allPassedCount)}
+      </div>
+      <span class="matrix-result-count" data-matrix-count>${rows.length} benchmark${rows.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="outcome-matrix-scroll">
+      <table class="outcome-matrix-table${modelIds.length <= 4 ? " outcome-matrix-table-compact" : ""}">
+        <thead><tr><th class="matrix-benchmark-col">Benchmark</th>${modelIds.map((modelId) => `<th class="matrix-model-col"><a href="${escapeAttribute(modelDetailReportPath(modelId))}">${escapeHtml(modelId)}</a></th>`).join("")}<th class="matrix-summary-col">Review signal</th></tr></thead>
+        <tbody>${rows
+          .map(
+            (row) =>
+              `<tr data-matrix-row data-disagreement="${row.disagreement ? "true" : "false"}" data-has-review="${row.reviewCount > 0 ? "true" : "false"}" data-has-failure="${row.failureCount > 0 ? "true" : "false"}" data-all-passed="${row.allPassed ? "true" : "false"}" data-search="${escapeAttribute(row.rowSearch)}"><td class="matrix-benchmark-name"><a href="${escapeAttribute(benchmarkDetailReportPath(row.benchmarkId))}">${escapeHtml(row.benchmarkId)}</a></td>${row.cells.map(renderOutcomeMatrixCell).join("")}<td class="matrix-row-summary">${renderMatrixRowSummary(row.passCount, row.attemptedCount, row.reviewCount, row.failureCount)}</td></tr>`,
+          )
+          .join("\n")}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function matrixFilterButton(filter: string, label: string, count: number, active = false): string {
+  return `<button type="button" class="tab matrix-filter${active ? " active" : ""}" data-matrix-filter="${escapeAttribute(filter)}">${escapeHtml(label)} <span>${count}</span></button>`;
+}
+
+function outcomeMatrixCell(
+  benchmarkId: string,
+  modelId: string,
+  attempts: readonly AttemptReport[],
+): OutcomeMatrixCell {
+  if (attempts.length === 0) {
+    return {
+      status: "not_run",
+      label: "—",
+      meta: "not run",
+      title: `${modelId} did not run ${benchmarkId}.`,
+      attempts,
+    };
+  }
+  const status = aggregateMatrixStatus(attempts);
+  const selectedAttempt = bestMatrixAttempt(attempts);
+  const passCount = attempts.filter((attempt) => attempt.evaluation?.verdict === "passed").length;
+  const reviewCount = attempts.filter(
+    (attempt) => attempt.evaluation?.verdict === "needs_review",
+  ).length;
+  const label =
+    attempts.length === 1
+      ? formatStatus(status)
+      : passCount > 0
+        ? `${passCount}/${attempts.length} pass`
+        : reviewCount > 0
+          ? `${reviewCount}/${attempts.length} review`
+          : formatStatus(status);
+  const score = selectedAttempt.evaluation?.score;
+  const cost = selectedAttempt.agent.telemetry.usage.estimated_cost_usd?.total;
+  const metaParts = [
+    score === undefined ? undefined : String(score),
+    cost === undefined ? undefined : formatUsd(cost),
+  ].filter((part): part is string => part !== undefined && part !== "");
+  return {
+    status,
+    label,
+    meta: metaParts.join(" · "),
+    title: attempts.map(matrixAttemptTitle).join("\n"),
+    href: `${benchmarkDetailReportPath(benchmarkId)}#quality-${slugify(`${selectedAttempt.benchmark_id}-${selectedAttempt.model.id}-${selectedAttempt.attempt}`)}`,
+    attempts,
+  };
+}
+
+function aggregateMatrixStatus(attempts: readonly AttemptReport[]): string {
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "passed")) return "passed";
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "needs_review")) {
+    return "needs_review";
+  }
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "policy_issue")) {
+    return "policy_issue";
+  }
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "failed")) return "failed";
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "invalid_benchmark")) {
+    return "invalid_benchmark";
+  }
+  if (attempts.some((attempt) => attempt.evaluation?.verdict === "inconclusive")) {
+    return "inconclusive";
+  }
+  if (attempts.some((attempt) => attempt.status === "evaluation_failed"))
+    return "evaluation_failed";
+  if (attempts.some((attempt) => attempt.status === "agent_failed")) return "agent_failed";
+  return attempts[0]?.status ?? "not_run";
+}
+
+function bestMatrixAttempt(attempts: readonly AttemptReport[]): AttemptReport {
+  const first = attempts[0];
+  if (first === undefined) {
+    throw new Error("Cannot choose a matrix attempt from an empty attempt list.");
+  }
+  return [...attempts].sort((a, b) => matrixAttemptRank(b) - matrixAttemptRank(a))[0] ?? first;
+}
+
+function matrixAttemptRank(attempt: AttemptReport): number {
+  const status = attempt.evaluation?.verdict ?? attempt.status;
+  if (status === "passed") return 100;
+  if (status === "needs_review") return 80;
+  if (status === "policy_issue") return 60;
+  if (status === "failed") return 50;
+  if (attempt.status === "completed") return 40;
+  if (status === "inconclusive") return 30;
+  if (status === "evaluation_failed") return 20;
+  if (status === "agent_failed") return 10;
+  return 0;
+}
+
+function matrixAttemptTitle(attempt: AttemptReport): string {
+  const status = attempt.evaluation?.verdict ?? attempt.status;
+  const signalCount =
+    attempt.agent.signals.length +
+    (attempt.evaluation?.signals.length ?? 0) +
+    (attempt.quality_signals?.length ?? 0);
+  return [
+    `${attempt.model.id} attempt ${attempt.attempt}: ${formatStatus(status)}`,
+    attempt.evaluation?.score === undefined ? undefined : `score ${attempt.evaluation.score}`,
+    attempt.agent.telemetry.usage.estimated_cost_usd?.total === undefined
+      ? undefined
+      : formatUsd(attempt.agent.telemetry.usage.estimated_cost_usd.total),
+    `${formatCompactInteger(attempt.agent.telemetry.usage.total_tokens)} tokens`,
+    `${attempt.submission?.changed_files.length ?? 0} files`,
+    `${signalCount} signals`,
+    `${attempt.tool_usage?.summary.tool_calls ?? 0} tool calls`,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" · ");
+}
+
+function renderOutcomeMatrixCell(cell: OutcomeMatrixCell): string {
+  const body = `<span class="matrix-cell-label">${escapeHtml(cell.label)}</span>${cell.meta ? `<span class="matrix-cell-meta">${escapeHtml(cell.meta)}</span>` : ""}`;
+  const className = `matrix-cell matrix-cell-${escapeAttribute(statusClassName(cell.status))}`;
+  return `<td>${cell.href === undefined ? `<span class="${className}" title="${escapeAttribute(cell.title)}">${body}</span>` : `<a class="${className}" href="${escapeAttribute(cell.href)}" title="${escapeAttribute(cell.title)}">${body}</a>`}</td>`;
+}
+
+function renderMatrixRowSummary(
+  passCount: number,
+  attemptedCount: number,
+  reviewCount: number,
+  failureCount: number,
+): string {
+  if (attemptedCount === 0) return statusBadge("not_run");
+  if (passCount === attemptedCount)
+    return `<span class="matrix-summary-pass">${passCount}/${attemptedCount} passed</span>`;
+  if (reviewCount > 0 && failureCount === 0) {
+    return `<span class="matrix-summary-review">${reviewCount} review · ${passCount}/${attemptedCount} passed</span>`;
+  }
+  if (failureCount > 0) {
+    return `<span class="matrix-summary-fail">${failureCount} problem · ${passCount}/${attemptedCount} passed</span>`;
+  }
+  return `<span>${passCount}/${attemptedCount} passed</span>`;
+}
+
+function isProblemMatrixStatus(status: string): boolean {
+  return [
+    "failed",
+    "policy_issue",
+    "agent_failed",
+    "evaluation_failed",
+    "invalid_benchmark",
+    "inconclusive",
+  ].includes(status);
+}
+
+function statusClassName(status: string): string {
+  return status.replace(/[^a-z0-9_-]/gi, "_");
+}
+
 export function renderAttemptRows(attempts: readonly AttemptReport[]): string {
   return attempts
     .map(
