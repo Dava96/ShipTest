@@ -34,6 +34,8 @@ export interface BuildSnapshotOptions {
   readonly base_commit?: string;
   readonly output_root_path: string;
   readonly shiptest_config_dir: string;
+  readonly shiptest_config_path?: string;
+  readonly additional_hidden_shiptest_paths?: readonly string[];
   readonly snapshot: ResolvedShiptestConfig["snapshot"];
   readonly agent_context: ResolvedShiptestConfig["benchmarks"][number]["agent_context"];
   readonly evaluation: ResolvedShiptestConfig["benchmarks"][number]["evaluation"];

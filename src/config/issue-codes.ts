@@ -1,7 +1,9 @@
 export const ConfigIssueCode = {
   ConfigFileNotFound: "CONFIG_FILE_NOT_FOUND",
   ConfigSchemaInvalid: "CONFIG_SCHEMA_INVALID",
+  InvalidGitReference: "INVALID_GIT_REFERENCE",
   ProjectRepoNotFound: "PROJECT_REPO_NOT_FOUND",
+  ReferenceSolutionNotDescendant: "REFERENCE_SOLUTION_NOT_DESCENDANT",
   ReferencedDirectoryNotFound: "REFERENCED_DIRECTORY_NOT_FOUND",
   ReferencedFileNotFound: "REFERENCED_FILE_NOT_FOUND",
   UnsafeWorkspacePath: "UNSAFE_WORKSPACE_PATH",

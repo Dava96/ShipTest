@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createShiptestConfigFixture } from "../test-support/shiptest-config-fixture.js";
+import { git } from "../utils/git.js";
 import type { ShiptestConfigError } from "./errors.js";
 import {
   loadShiptestConfig,
@@ -278,6 +279,73 @@ describe("config loading and validation", () => {
     } satisfies Partial<ShiptestConfigError>);
   });
 
+  it("rejects replay reference commits that are not descendants of the base commit", async () => {
+    const root = await createTempDirectory();
+    const repo = path.join(root, "repo");
+    await mkdir(repo, { recursive: true });
+    await git(["init", "--initial-branch", "main"], repo);
+    await git(["config", "user.email", "test@shiptest.local"], repo);
+    await git(["config", "user.name", "ShipTest Test"], repo);
+    await writeFile(path.join(repo, "file.txt"), "base\n", "utf8");
+    await git(["add", "-A"], repo);
+    await git(["commit", "-m", "base"], repo);
+    const firstCommit = (await git(["rev-parse", "HEAD"], repo)).stdout.trim();
+    await writeFile(path.join(repo, "file.txt"), "main\n", "utf8");
+    await git(["commit", "-am", "main"], repo);
+    const baseCommit = (await git(["rev-parse", "HEAD"], repo)).stdout.trim();
+    await git(["checkout", "--detach", firstCommit], repo);
+    await writeFile(path.join(repo, "file.txt"), "side\n", "utf8");
+    await git(["commit", "-am", "side"], repo);
+    const referenceCommit = (await git(["rev-parse", "HEAD"], repo)).stdout.trim();
+    await mkdir(path.join(root, "tasks"), { recursive: true });
+    await mkdir(path.join(root, "hidden"), { recursive: true });
+    await writeFile(path.join(root, "tasks", "task.md"), "Task\n", "utf8");
+    await writeFile(path.join(root, "hidden", "check.cjs"), "// hidden\n", "utf8");
+    const configPath = path.join(root, "shiptest.yaml");
+    await writeFile(
+      configPath,
+      `version: 1
+project:
+  name: p
+  repo: ${repo.replaceAll("\\", "/")}
+environment:
+  validate:
+    - node --version
+models:
+  - id: sonnet
+    provider: anthropic
+    model: claude
+defaults:
+  models:
+    - sonnet
+  limits: {}
+  agent_view: {}
+  evaluation:
+    command: node --version
+benchmarks:
+  - id: replay
+    type: replay_change
+    base_commit: ${baseCommit}
+    reference_solution:
+      commit: ${referenceCommit}
+    task: tasks/task.md
+    evaluation:
+      command: node hidden/check.cjs
+      hidden_files:
+        - shiptest_path: hidden/check.cjs
+          repository_path: hidden/check.cjs
+          write_mode: create_new
+`,
+      "utf8",
+    );
+
+    await expect(loadShiptestConfig(configPath)).rejects.toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "REFERENCE_SOLUTION_NOT_DESCENDANT" }),
+      ]),
+    } satisfies Partial<ShiptestConfigError>);
+  });
+
   it("reports when hidden evaluation asset path types are wrong", async () => {
     const directoryPathFixture = await createConfigFixture({
       hiddenDirectoryPath: "tasks/task.md",
@@ -324,6 +392,77 @@ describe("config loading and validation", () => {
             type: "implementation",
             task: "task.md",
             evaluation: { command: "npm test" },
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires replay benchmarks to define local verifier and reference solution", () => {
+    expect(
+      ShiptestConfigSchema.safeParse({
+        version: 1,
+        project: { name: "p", repo: "." },
+        environment: { validate: ["npm test"] },
+        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+        defaults: {
+          models: ["sonnet"],
+          limits: {},
+          agent_view: {},
+          evaluation: {
+            command: "npm test",
+            hidden_files: [
+              {
+                shiptest_path: "hidden/default.test.ts",
+                repository_path: "tests/default.test.ts",
+                write_mode: "create_new",
+              },
+            ],
+          },
+        },
+        benchmarks: [
+          {
+            id: "invoice",
+            type: "replay_change",
+            base_commit: "abc123",
+            task: "task.md",
+            evaluation: { command: "npm test" },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts replay benchmarks with a local verifier and reference solution patch", () => {
+    expect(
+      ShiptestConfigSchema.safeParse({
+        version: 1,
+        project: { name: "p", repo: "." },
+        environment: { validate: ["npm test"] },
+        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+        defaults: {
+          models: ["sonnet"],
+          limits: {},
+          agent_view: {},
+          evaluation: { command: "npm test" },
+        },
+        benchmarks: [
+          {
+            id: "invoice",
+            type: "replay_change",
+            base_commit: "abc123",
+            reference_solution: { patch: "hidden/solution.patch" },
+            task: "task.md",
+            evaluation: {
+              command: "npm test -- tests/hidden/invoice.test.ts",
+              hidden_files: [
+                {
+                  shiptest_path: "hidden/invoice.test.ts",
+                  repository_path: "tests/hidden/invoice.test.ts",
+                  write_mode: "create_new",
+                },
+              ],
+            },
           },
         ],
       }).success,
@@ -459,6 +598,7 @@ async function createConfigFixture(options: ConfigFixtureOptions = {}): Promise<
   await writeFile(path.join(root, "instructions.md"), "Instructions\n", "utf8");
   await writeFile(path.join(root, "hidden", "test.ts"), "// test\n", "utf8");
   await writeFile(path.join(root, "hidden", "patch.diff"), "diff --git a/a b/a\n", "utf8");
+  await writeFile(path.join(root, "hidden", "solution.patch"), "", "utf8");
 
   const configPath = path.join(root, "shiptest.yaml");
   await writeFile(
@@ -499,7 +639,22 @@ benchmarks:
   - id: invoice
     type: replay_change
     base_commit: abc123
+    reference_solution:
+      patch: hidden/solution.patch
     task: tasks/task.md
+    evaluation:
+      command: npm test
+      hidden_files:
+        - shiptest_path: ${options.hiddenFilePath ?? "hidden/test.ts"}
+          repository_path: tests/test.ts
+          write_mode: create_new
+      hidden_directories:
+        - shiptest_path: ${options.hiddenDirectoryPath ?? "hidden/fixtures"}
+          repository_path: ${options.hiddenDirectoryRepositoryPath ?? "tests/fixtures"}
+          write_mode: create_new
+      hidden_patches:
+        - shiptest_path: ${options.hiddenPatchPath ?? "hidden/patch.diff"}
+      hidden_patch_policy: advanced_allow_collision_risk
 `,
     "utf8",
   );

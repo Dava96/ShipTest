@@ -1,10 +1,12 @@
 import path from "node:path";
 
 import { isDirectory, isFile, pathExists } from "../utils/filesystem.js";
+import { git, resolveCommit } from "../utils/git.js";
 import type { ValidationIssue } from "./errors.js";
 import { ConfigIssueCode } from "./issue-codes.js";
 import type { ShiptestConfigContext } from "./load-config.js";
 import { isSafeWorkspacePath, resolveConfigRelativePath } from "./paths.js";
+import { BenchmarkType } from "./schema-values.js";
 
 export async function validateConfigReferences(
   context: ShiptestConfigContext,
@@ -87,9 +89,75 @@ export async function validateConfigReferences(
         resolveConfigRelativePath(context.configDir, patch.shiptest_path),
       );
     }
+
+    if (benchmark.type === BenchmarkType.ReplayChange) {
+      if ("patch" in benchmark.reference_solution) {
+        await addFileExistsIssue(
+          issues,
+          `${benchmarkPath}.reference_solution.patch`,
+          resolveConfigRelativePath(context.configDir, benchmark.reference_solution.patch),
+        );
+      } else {
+        await addReferenceCommitIssues({
+          issues,
+          repoDir,
+          benchmarkPath,
+          baseCommit: benchmark.base_commit,
+          referenceCommit: benchmark.reference_solution.commit,
+        });
+      }
+    }
   }
 
   return issues;
+}
+
+async function addReferenceCommitIssues(options: {
+  readonly issues: ValidationIssue[];
+  readonly repoDir: string;
+  readonly benchmarkPath: string;
+  readonly baseCommit: string;
+  readonly referenceCommit: string;
+}): Promise<void> {
+  if (!(await pathExists(options.repoDir))) {
+    return;
+  }
+
+  let baseResolved = "";
+  let referenceResolved = "";
+  try {
+    baseResolved = await resolveCommit(options.repoDir, options.baseCommit);
+  } catch (error) {
+    options.issues.push({
+      code: ConfigIssueCode.InvalidGitReference,
+      path: `${options.benchmarkPath}.base_commit`,
+      message: `base_commit does not resolve to a commit: ${options.baseCommit}. ${formatError(error)}`,
+    });
+  }
+
+  try {
+    referenceResolved = await resolveCommit(options.repoDir, options.referenceCommit);
+  } catch (error) {
+    options.issues.push({
+      code: ConfigIssueCode.InvalidGitReference,
+      path: `${options.benchmarkPath}.reference_solution.commit`,
+      message: `reference_solution.commit does not resolve to a commit: ${options.referenceCommit}. ${formatError(error)}`,
+    });
+  }
+
+  if (!baseResolved || !referenceResolved) {
+    return;
+  }
+
+  try {
+    await git(["merge-base", "--is-ancestor", baseResolved, referenceResolved], options.repoDir);
+  } catch {
+    options.issues.push({
+      code: ConfigIssueCode.ReferenceSolutionNotDescendant,
+      path: `${options.benchmarkPath}.reference_solution.commit`,
+      message: `reference_solution.commit must be a descendant of base_commit. Use reference_solution.patch for curated non-descendant fixes.`,
+    });
+  }
 }
 
 async function addPathExistsIssue(
@@ -141,4 +209,8 @@ async function addDirectoryExistsIssue(
       ? `Path is not a directory: ${path.normalize(directoryPath)}`
       : `Directory does not exist: ${path.normalize(directoryPath)}`,
   });
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

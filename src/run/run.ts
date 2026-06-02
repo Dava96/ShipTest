@@ -2,6 +2,7 @@ import { cp, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runPiJsonAgentAttempt } from "../agent/pi-json-harness.js";
+import { getBenchmarkPolicy } from "../benchmark/policy.js";
 import { loadShiptestConfigContext } from "../config/load-config.js";
 import { resolveConfigRelativePath } from "../config/paths.js";
 import { runDoctor } from "../doctor/run-doctor.js";
@@ -519,22 +520,21 @@ function createAttemptQualitySignals(options: {
     });
   }
 
-  if (requiresRepositoryChanges(options.benchmark.type)) {
+  const benchmarkPolicy = getBenchmarkPolicy(options.benchmark.type);
+  if (benchmarkPolicy.requiresRepositoryChanges) {
     const submission = options.agentResult.submission;
     if (!submission || submission.changed_files.length === 0) {
       signals.push({
         id: "required_file_changes_missing",
         severity: "error",
-        message:
-          "Implementation and replay_change benchmarks require repository changes, but the submission changed no files.",
+        message: benchmarkPolicy.emptySubmissionMessage,
       });
     }
     if (submission?.is_empty) {
       signals.push({
         id: "empty_submission_patch",
         severity: "error",
-        message:
-          "Implementation and replay_change benchmarks require a non-empty submission patch.",
+        message: benchmarkPolicy.emptyPatchMessage,
       });
     }
   }
@@ -554,10 +554,6 @@ function excludedPathMatches(
       matchesRepositoryPath(changedFile.replaceAll("\\\\", "/"), pattern),
     ),
   );
-}
-
-function requiresRepositoryChanges(benchmarkType: AttemptReport["benchmark_type"]): boolean {
-  return benchmarkType === "implementation" || benchmarkType === "replay_change";
 }
 
 function classifyAttemptStatus(

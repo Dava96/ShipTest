@@ -78,6 +78,75 @@ describe("runDoctor", () => {
     ).resolves.toContain("DOCTOR_ADVISORY_VALIDATION_FAILED");
   });
 
+  it("validates replay benchmarks even when the prepared baseline is restored from cache", async () => {
+    const repoPath = await createRepo();
+    await writeFile(path.join(repoPath, "src", "value.txt"), "bug\n", "utf8");
+    await git(["add", "-A"], repoPath);
+    await git(["commit", "-m", "buggy base"], repoPath);
+    const baseCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    await writeFile(path.join(repoPath, "src", "value.txt"), "fixed\n", "utf8");
+    await git(["add", "-A"], repoPath);
+    await git(["commit", "-m", "reference fix"], repoPath);
+    const referenceCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-doctor-replay-"));
+    const fixture = await createShiptestConfigFixture({
+      root,
+      configSubdir: "config",
+      projectRepo: repoPath,
+      environment: { validate: ['node -e "process.exit(0)"'] },
+      benchmarks: [
+        {
+          id: "replay-fix",
+          type: "replay_change",
+          base_commit: baseCommit,
+          reference_solution: { commit: referenceCommit },
+          task: "tasks/replay-fix.md",
+          evaluation: {
+            command: "node tests/hidden/check.cjs",
+            hidden_files: [
+              {
+                shiptest_path: "hidden/check.cjs",
+                repository_path: "tests/hidden/check.cjs",
+                write_mode: "create_new",
+              },
+            ],
+          },
+        },
+      ],
+      files: {
+        "tasks/replay-fix.md": "Fix the value.\n",
+        "hidden/check.cjs": `const fs = require("node:fs");\nprocess.exit(fs.readFileSync("src/value.txt", "utf8").trim() === "fixed" ? 0 : 1);\n`,
+      },
+    });
+    const context = await loadShiptestConfigContext(fixture.configPath);
+    const outputRootPath = path.join(root, ".shiptest", "doctor");
+    const cacheRootPath = path.join(root, ".shiptest", "cache");
+
+    const first = await runDoctor(context, { outputRootPath, cacheRootPath });
+    const cached = await runDoctor(context, { outputRootPath, cacheRootPath });
+
+    for (const result of [first, cached]) {
+      expect(result.ok).toBe(true);
+      expect(result.benchmark_results[0]?.commands.map((command) => command.phase)).toEqual([
+        ...(result === first ? ["required_validation"] : []),
+        "replay_base_validation",
+        "replay_reference_validation",
+      ]);
+      expect(result.benchmark_results[0]?.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: DoctorCheckCode.ReplayBaseValidationFailedAsExpected,
+            severity: "pass",
+          }),
+          expect.objectContaining({
+            code: DoctorCheckCode.ReplayReferenceValidationPassed,
+            severity: "pass",
+          }),
+        ]),
+      );
+    }
+  });
+
   it("uses a valid prepared-baseline cache and skips validation unless noCache is set", async () => {
     const repoPath = await createRepo();
     const fixturePath = await createConfig(repoPath, {

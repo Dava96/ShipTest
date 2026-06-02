@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,7 +11,8 @@ import {
 import { CheckSeverity } from "../checks/severity.js";
 import type { ShiptestConfigContext } from "../config/load-config.js";
 import { resolveConfigRelativePath } from "../config/paths.js";
-import { CommandsRunIn } from "../config/schema-values.js";
+import { BenchmarkType, CommandsRunIn } from "../config/schema-values.js";
+import { applyHiddenEvaluationPayload } from "../evaluation/hidden-payload.js";
 import { runShellCommand } from "../execution/run-command.js";
 import { buildSnapshot } from "../snapshot/build-snapshot.js";
 import type { BuildSnapshotOptions, SnapshotCheck } from "../snapshot/types.js";
@@ -21,6 +22,7 @@ import {
   safeRemoveDescendant,
   samePath,
 } from "../utils/filesystem.js";
+import { git } from "../utils/git.js";
 import { sha256Json } from "../utils/hash.js";
 import { type DoctorCheck, DoctorCheckCode } from "./check-codes.js";
 import {
@@ -96,17 +98,25 @@ export async function runDoctor(
       baselineGroupByBenchmarkId.set(benchmarkId, baselineGroup);
     }
   }
-  const benchmarkResults = benchmarks.map((benchmark) => {
-    const baselineGroup = baselineGroupByBenchmarkId.get(benchmark.id);
-    if (!baselineGroup) {
-      throw new Error(`Baseline group missing for benchmark '${benchmark.id}'.`);
-    }
-    const baselineResult = baselineResultsById.get(baselineGroup.baseline_id);
-    if (!baselineResult) {
-      throw new Error(`Baseline result missing for benchmark '${benchmark.id}'.`);
-    }
-    return createBenchmarkDoctorResultFromBaseline(benchmark.id, baselineResult);
-  });
+  const benchmarkResults = await runOrderedConcurrent(
+    benchmarks,
+    options.concurrency ?? 1,
+    async (benchmark) => {
+      const baselineGroup = baselineGroupByBenchmarkId.get(benchmark.id);
+      if (!baselineGroup) {
+        throw new Error(`Baseline group missing for benchmark '${benchmark.id}'.`);
+      }
+      const baselineResult = baselineResultsById.get(baselineGroup.baseline_id);
+      if (!baselineResult) {
+        throw new Error(`Baseline result missing for benchmark '${benchmark.id}'.`);
+      }
+      return runBenchmarkDoctor(context, benchmark, baselineResult, {
+        ...options,
+        outputRootPath,
+        workspaceRootPath,
+      });
+    },
+  );
   for (const benchmarkResult of benchmarkResults) {
     await writeBenchmarkDoctorResult(outputRootPath, benchmarkResult);
   }
@@ -170,7 +180,13 @@ async function runBaselineDoctor(
   emitProgress(options, benchmarkId, "snapshot", "Building sanitized snapshot.");
   const snapshotResult = await measureTiming(timings, "snapshot_ms", () =>
     buildSnapshotSafely(
-      createBuildSnapshotOptions(context, benchmarkId, snapshotOutputPath, options.snapshotSource),
+      createBuildSnapshotOptions(
+        context,
+        benchmarkId,
+        baselineGroup.benchmark_ids,
+        snapshotOutputPath,
+        options.snapshotSource,
+      ),
     ),
   );
   checks.push(...snapshotResult.checks);
@@ -487,6 +503,72 @@ function createDoctorResultIndex(result: DoctorResult): object {
   };
 }
 
+async function runBenchmarkDoctor(
+  context: ShiptestConfigContext,
+  benchmark: ShiptestConfigContext["config"]["benchmarks"][number],
+  baselineResult: DoctorBaselineResult,
+  options: DoctorOptions & { readonly outputRootPath: string; readonly workspaceRootPath: string },
+): Promise<DoctorBenchmarkResult> {
+  const baselineBenchmarkResult = createBenchmarkDoctorResultFromBaseline(
+    benchmark.id,
+    baselineResult,
+  );
+  if (!baselineBenchmarkResult.ok || benchmark.type !== BenchmarkType.ReplayChange) {
+    return baselineBenchmarkResult;
+  }
+
+  if (!baselineResult.prepared_baseline_path) {
+    return {
+      ...baselineBenchmarkResult,
+      ok: false,
+      checks: [
+        ...baselineBenchmarkResult.checks,
+        {
+          code: DoctorCheckCode.ReplayReferenceValidationFailed,
+          severity: CheckSeverity.Error,
+          message: "Replay validation requires a prepared baseline, but none was produced.",
+        },
+      ],
+    };
+  }
+
+  emitProgress(options, benchmark.id, "replay_validation", "Validating replay benchmark.");
+  const startedAt = Date.now();
+  const replayValidationResult = await runReplayBenchmarkValidation(context, benchmark, {
+    preparedBaselinePath: baselineResult.prepared_baseline_path,
+    workspaceRootPath: path.join(
+      options.workspaceRootPath,
+      "replay-validation",
+      sanitizePathSegment(benchmark.id),
+    ),
+    commandOutputMaxBytes: options.commandOutputMaxBytes ?? DoctorDefaults.CommandOutputMaxBytes,
+  }).catch((error) => ({
+    ok: false,
+    commands: [],
+    checks: [
+      {
+        code: DoctorCheckCode.ReplayReferenceValidationFailed,
+        severity: CheckSeverity.Error,
+        message: `Replay validation failed. ${formatError(error)}`,
+      },
+    ],
+  }));
+  const replayValidationMs = Date.now() - startedAt;
+
+  return {
+    ...baselineBenchmarkResult,
+    ok: baselineBenchmarkResult.ok && replayValidationResult.ok,
+    timings_ms: {
+      ...baselineBenchmarkResult.timings_ms,
+      total_ms: baselineBenchmarkResult.timings_ms.total_ms + replayValidationMs,
+      replay_validation_ms:
+        baselineBenchmarkResult.timings_ms.replay_validation_ms + replayValidationMs,
+    },
+    commands: [...baselineBenchmarkResult.commands, ...replayValidationResult.commands],
+    checks: [...baselineBenchmarkResult.checks, ...replayValidationResult.checks],
+  };
+}
+
 function createBenchmarkDoctorResultFromBaseline(
   benchmarkId: string,
   baselineResult: DoctorBaselineResult,
@@ -514,6 +596,194 @@ function createBenchmarkDoctorResultFromBaseline(
   };
 }
 
+async function runReplayBenchmarkValidation(
+  context: ShiptestConfigContext,
+  benchmark: Extract<
+    ShiptestConfigContext["config"]["benchmarks"][number],
+    { readonly type: typeof BenchmarkType.ReplayChange }
+  >,
+  options: {
+    readonly preparedBaselinePath: string;
+    readonly workspaceRootPath: string;
+    readonly commandOutputMaxBytes: number;
+  },
+): Promise<{
+  readonly ok: boolean;
+  readonly commands: readonly DoctorCommandResult[];
+  readonly checks: readonly DoctorCheck[];
+}> {
+  const commands: DoctorCommandResult[] = [];
+  const checks: DoctorCheck[] = [];
+
+  const referencePatch = await loadReferenceSolutionPatch(context, benchmark);
+
+  const baseWorkspacePath = path.join(options.workspaceRootPath, "base");
+  await prepareDoctorWorkspace(options.preparedBaselinePath, baseWorkspacePath);
+  const baseHiddenResult = await applyReplayHiddenPayload(context, benchmark, baseWorkspacePath);
+  checks.push(...baseHiddenResult.checks);
+  if (!baseHiddenResult.ok) {
+    return { ok: false, commands, checks };
+  }
+  const baseCommand = await runShellCommand({
+    command: benchmark.evaluation.scoring_command,
+    cwd: baseWorkspacePath,
+    maxOutputBytes: options.commandOutputMaxBytes,
+  });
+  commands.push({ ...baseCommand, phase: "replay_base_validation" });
+  if (baseCommand.exit_code === 0) {
+    checks.push({
+      code: DoctorCheckCode.ReplayBaseValidationUnexpectedlyPassed,
+      severity: CheckSeverity.Error,
+      message:
+        "Replay benchmark hidden verifier unexpectedly passed on the base commit. The verifier must fail before the reference solution is applied.",
+    });
+  } else {
+    checks.push({
+      code: DoctorCheckCode.ReplayBaseValidationFailedAsExpected,
+      severity: CheckSeverity.Pass,
+      message: "Replay benchmark hidden verifier failed on the base commit as expected.",
+    });
+  }
+
+  const referenceWorkspacePath = path.join(options.workspaceRootPath, "reference");
+  await prepareDoctorWorkspace(options.preparedBaselinePath, referenceWorkspacePath);
+  const referencePatchApplyResult = await applyReferencePatch(
+    referenceWorkspacePath,
+    referencePatch,
+  );
+  if (!referencePatchApplyResult.ok) {
+    checks.push({
+      code: DoctorCheckCode.ReplayReferencePatchApplyFailed,
+      severity: CheckSeverity.Error,
+      message: referencePatchApplyResult.message,
+    });
+    return { ok: false, commands, checks };
+  }
+  const referenceHiddenResult = await applyReplayHiddenPayload(
+    context,
+    benchmark,
+    referenceWorkspacePath,
+  );
+  checks.push(...referenceHiddenResult.checks);
+  if (!referenceHiddenResult.ok) {
+    return { ok: false, commands, checks };
+  }
+  const referenceCommand = await runShellCommand({
+    command: benchmark.evaluation.scoring_command,
+    cwd: referenceWorkspacePath,
+    maxOutputBytes: options.commandOutputMaxBytes,
+  });
+  commands.push({ ...referenceCommand, phase: "replay_reference_validation" });
+  if (referenceCommand.exit_code === 0) {
+    checks.push({
+      code: DoctorCheckCode.ReplayReferenceValidationPassed,
+      severity: CheckSeverity.Pass,
+      message: "Replay benchmark hidden verifier passed with the reference solution.",
+    });
+  } else {
+    checks.push({
+      code: DoctorCheckCode.ReplayReferenceValidationFailed,
+      severity: CheckSeverity.Error,
+      message: `Replay benchmark hidden verifier failed with the reference solution. Exit code: ${referenceCommand.exit_code ?? "null"}.`,
+    });
+  }
+
+  return {
+    ok: checks.every((check) => check.severity !== CheckSeverity.Error) && commands.length === 2,
+    commands,
+    checks,
+  };
+}
+
+async function prepareDoctorWorkspace(
+  preparedBaselinePath: string,
+  workspacePath: string,
+): Promise<void> {
+  await rm(workspacePath, { force: true, recursive: true });
+  await mkdir(path.dirname(workspacePath), { recursive: true });
+  await cp(preparedBaselinePath, workspacePath, { recursive: true, verbatimSymlinks: true });
+}
+
+async function applyReferencePatch(
+  workspacePath: string,
+  referencePatch: string,
+): Promise<{ readonly ok: boolean; readonly message: string }> {
+  if (referencePatch.length === 0) {
+    return { ok: true, message: "Reference solution patch is empty; nothing was applied." };
+  }
+  try {
+    await git(
+      ["apply", "--binary", "--whitespace=nowarn", "--ignore-space-change", "-"],
+      workspacePath,
+      referencePatch,
+    );
+    return { ok: true, message: "Applied reference solution patch." };
+  } catch (error) {
+    return { ok: false, message: formatError(error) };
+  }
+}
+
+async function applyReplayHiddenPayload(
+  context: ShiptestConfigContext,
+  benchmark: Extract<
+    ShiptestConfigContext["config"]["benchmarks"][number],
+    { readonly type: typeof BenchmarkType.ReplayChange }
+  >,
+  workspacePath: string,
+): Promise<{ readonly ok: boolean; readonly checks: readonly DoctorCheck[] }> {
+  const hiddenPayloadResult = await applyHiddenEvaluationPayload({
+    workspacePath,
+    configDir: context.configDir,
+    evaluation: benchmark.evaluation,
+  });
+  if (hiddenPayloadResult.ok) {
+    return {
+      ok: true,
+      checks: [
+        {
+          code: DoctorCheckCode.ReplayHiddenPayloadApplied,
+          severity: CheckSeverity.Pass,
+          message: "Applied replay hidden verifier payload.",
+        },
+      ],
+    };
+  }
+  return {
+    ok: false,
+    checks: [
+      {
+        code: DoctorCheckCode.ReplayHiddenPayloadFailed,
+        severity: CheckSeverity.Error,
+        message:
+          hiddenPayloadResult.checks.find((check) => check.severity === CheckSeverity.Error)
+            ?.message ?? "Failed to apply replay hidden verifier payload.",
+      },
+    ],
+  };
+}
+
+async function loadReferenceSolutionPatch(
+  context: ShiptestConfigContext,
+  benchmark: Extract<
+    ShiptestConfigContext["config"]["benchmarks"][number],
+    { readonly type: typeof BenchmarkType.ReplayChange }
+  >,
+): Promise<string> {
+  if ("patch" in benchmark.reference_solution) {
+    return readFile(
+      resolveConfigRelativePath(context.configDir, benchmark.reference_solution.patch),
+      "utf8",
+    );
+  }
+
+  const repoPath = resolveConfigRelativePath(context.configDir, context.config.project.repo);
+  const result = await git(
+    ["diff", "--binary", benchmark.base_commit, benchmark.reference_solution.commit],
+    repoPath,
+  );
+  return result.stdout;
+}
+
 function benchmarkDoctorOutputPath(outputRootPath: string, benchmarkId: string): string {
   return path.join(outputRootPath, "benchmarks", sanitizePathSegment(benchmarkId));
 }
@@ -535,6 +805,7 @@ function sanitizePathSegment(value: string): string {
 function createBuildSnapshotOptions(
   context: ShiptestConfigContext,
   benchmarkId: string,
+  benchmarkIds: readonly string[],
   outputRootPath: string,
   snapshotSource: BuildSnapshotOptions["source"] = "git_commit",
 ): BuildSnapshotOptions {
@@ -543,11 +814,16 @@ function createBuildSnapshotOptions(
     throw new Error(`Unknown benchmark id: ${benchmarkId}`);
   }
 
+  const hiddenSourcePaths = context.config.benchmarks
+    .filter((candidate) => benchmarkIds.includes(candidate.id))
+    .flatMap(hiddenShiptestSourcePaths);
+
   return createBaselineBuildSnapshotOptions(
     context,
     benchmark.base_commit,
     outputRootPath,
     snapshotSource,
+    hiddenSourcePaths,
   );
 }
 
@@ -556,6 +832,7 @@ function createBaselineBuildSnapshotOptions(
   baseCommit: string | undefined,
   outputRootPath: string,
   snapshotSource: BuildSnapshotOptions["source"] = "git_commit",
+  additionalHiddenShiptestPaths: readonly string[] = [],
 ): BuildSnapshotOptions {
   const baselineAgentContext = {
     exclude_paths: [],
@@ -575,11 +852,28 @@ function createBaselineBuildSnapshotOptions(
     ...(snapshotSource === "git_commit" && baseCommit ? { base_commit: baseCommit } : {}),
     output_root_path: path.resolve(outputRootPath),
     shiptest_config_dir: context.configDir,
+    shiptest_config_path: context.configPath,
+    additional_hidden_shiptest_paths: additionalHiddenShiptestPaths,
     snapshot: context.config.snapshot,
     agent_context: baselineAgentContext,
     evaluation: baselineEvaluation,
     source: snapshotSource,
   };
+}
+
+function hiddenShiptestSourcePaths(
+  benchmark: ShiptestConfigContext["config"]["benchmarks"][number],
+): string[] {
+  return [
+    ...benchmark.evaluation.hidden_evaluation_files.map((file) => file.shiptest_path),
+    ...benchmark.evaluation.hidden_evaluation_directories.map(
+      (directory) => directory.shiptest_path,
+    ),
+    ...benchmark.evaluation.hidden_evaluation_patches.map((patch) => patch.shiptest_path),
+    ...(benchmark.type === BenchmarkType.ReplayChange && "patch" in benchmark.reference_solution
+      ? [benchmark.reference_solution.patch]
+      : []),
+  ];
 }
 
 function createDoctorBaselineGroups(
@@ -638,6 +932,7 @@ function createEmptyTimings(): MutableDoctorTimings {
     required_validation_ms: 0,
     advisory_validation_ms: 0,
     prepare_baseline_ms: 0,
+    replay_validation_ms: 0,
   };
 }
 
@@ -704,6 +999,10 @@ function emitProgress(
   message: string,
 ): void {
   options.onProgress?.({ benchmark_id: benchmarkId, phase, message });
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function validateDoctorOutputPath(outputRootPath: string, repoPath: string): void {
