@@ -65,7 +65,12 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
   });
 
   checks.push(await stripRealGitMetadata(agentSnapshotPath));
-  checks.push(await applyAgentContextExclusions(agentSnapshotPath, [".shiptest/**"]));
+  checks.push(
+    await applyAgentContextExclusions(agentSnapshotPath, [
+      ".shiptest/**",
+      ...activeConfigExclusions(options),
+    ]),
+  );
   checks.push(await verifyNoRealGitMetadata(agentSnapshotPath));
   checks.push(await createLfsPointerCheck(agentSnapshotPath, options.snapshot.git_lfs_handling));
   checks.push(...(await verifyHiddenEvaluationPaths(agentSnapshotPath, options.evaluation)));
@@ -75,6 +80,10 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
       sourceRepoPath: options.source_repo_path,
       shiptestConfigDir: options.shiptest_config_dir,
       evaluation: options.evaluation,
+      additionalHiddenShiptestPaths: [
+        ...(options.shiptest_config_path ? [options.shiptest_config_path] : []),
+        ...(options.additional_hidden_shiptest_paths ?? []),
+      ],
     })),
   );
 
@@ -108,6 +117,24 @@ export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snap
     }),
     checks,
   };
+}
+
+function activeConfigExclusions(options: BuildSnapshotOptions): string[] {
+  if (!options.shiptest_config_path) {
+    return [];
+  }
+  const relativeConfigPath = path.relative(
+    path.resolve(options.source_repo_path),
+    path.resolve(options.shiptest_config_path),
+  );
+  if (
+    !relativeConfigPath ||
+    relativeConfigPath.startsWith("..") ||
+    path.isAbsolute(relativeConfigPath)
+  ) {
+    return [];
+  }
+  return [relativeConfigPath.replaceAll(path.sep, "/")];
 }
 
 async function copyGitWorkingTree(sourceRepoPath: string, destinationPath: string): Promise<void> {

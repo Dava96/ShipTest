@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { hasBenchmarkLocalHiddenVerifier } from "../benchmark/policy.js";
 import {
   BenchmarkType,
   CommandsRunIn,
@@ -306,6 +307,27 @@ const PartialEvaluationInputSchema = z
     );
   });
 
+const ReplayChangeEvaluationInputSchema = z
+  .object(EvaluationInputShape)
+  .strict()
+  .superRefine((evaluation, context) => {
+    addHiddenPatchPolicyIssue(
+      {
+        hidden_evaluation_patches: evaluation.hidden_patches,
+        hidden_evaluation_patch_policy: evaluation.hidden_patch_policy,
+      },
+      context,
+    );
+    if (!hasBenchmarkLocalHiddenVerifier(evaluation)) {
+      context.addIssue({
+        code: "custom",
+        path: ["hidden_files"],
+        message:
+          "replay_change evaluation must define benchmark-local hidden_files, hidden_directories, or hidden_patches",
+      });
+    }
+  });
+
 const ToolUsageHighlightMatchSchema = z
   .object({
     tool: nonEmptyString.optional(),
@@ -376,26 +398,58 @@ export const DefaultsSchema = z
   })
   .strict();
 
-const BenchmarkCaseSchema = z
+const BenchmarkCommonShape = {
+  id,
+  task: nonEmptyString,
+  models: z.array(id).optional(),
+  limits: PartialLimitsSchema.optional(),
+  agent_view: PartialAgentViewSchema.optional(),
+} as const;
+
+export const ReferenceSolutionSchema = z
+  .union([
+    z.object({ commit: nonEmptyString }).strict(),
+    z.object({ patch: nonEmptyString }).strict(),
+  ])
+  .refine(
+    (referenceSolution) => "commit" in referenceSolution !== "patch" in referenceSolution,
+    "reference_solution must define exactly one of commit or patch",
+  );
+
+const ImplementationBenchmarkCaseSchema = z
   .object({
-    id,
+    ...BenchmarkCommonShape,
     base_commit: nonEmptyString.optional(),
-    task: nonEmptyString,
-    models: z.array(id).optional(),
-    limits: PartialLimitsSchema.optional(),
-    agent_view: PartialAgentViewSchema.optional(),
     evaluation: PartialEvaluationInputSchema.optional(),
   })
   .strict();
 
-const BenchmarkInputSchema = BenchmarkCaseSchema.extend({
-  type: z.enum([BenchmarkType.ReplayChange, BenchmarkType.Implementation]),
+const ReplayChangeBenchmarkCaseSchema = z
+  .object({
+    ...BenchmarkCommonShape,
+    base_commit: nonEmptyString,
+    reference_solution: ReferenceSolutionSchema,
+    evaluation: ReplayChangeEvaluationInputSchema,
+  })
+  .strict();
+
+const ImplementationBenchmarkInputSchema = ImplementationBenchmarkCaseSchema.extend({
+  type: z.literal(BenchmarkType.Implementation),
 });
+
+const ReplayChangeBenchmarkInputSchema = ReplayChangeBenchmarkCaseSchema.extend({
+  type: z.literal(BenchmarkType.ReplayChange),
+});
+
+const BenchmarkInputSchema = z.discriminatedUnion("type", [
+  ImplementationBenchmarkInputSchema,
+  ReplayChangeBenchmarkInputSchema,
+]);
 
 const GroupedBenchmarksSchema = z
   .object({
-    implementation: z.array(BenchmarkCaseSchema).default([]),
-    replay_change: z.array(BenchmarkCaseSchema).default([]),
+    implementation: z.array(ImplementationBenchmarkCaseSchema).default([]),
+    replay_change: z.array(ReplayChangeBenchmarkCaseSchema).default([]),
   })
   .strict()
   .refine(

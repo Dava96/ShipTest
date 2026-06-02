@@ -41,6 +41,32 @@ describe("buildSnapshot", () => {
     ).toBe(true);
   });
 
+  it("removes the active ShipTest config when it lives inside the source repo", async () => {
+    const fixture = await createGitRepoFixture();
+    const configPath = path.join(fixture.repoPath, "shiptest.yaml");
+    await writeFile(
+      configPath,
+      "reference_solution:\n  commit: answer-commit-that-agent-must-not-see\n",
+      "utf8",
+    );
+    await git(["add", "shiptest.yaml"], fixture.repoPath);
+    await git(["commit", "-m", "add config"], fixture.repoPath);
+    const commit = (await git(["rev-parse", "HEAD"], fixture.repoPath)).stdout.trim();
+
+    const result = await buildSnapshot({
+      ...baseSnapshotOptions({ ...fixture, commit }),
+      shiptest_config_path: configPath,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected snapshot build to succeed");
+    }
+    await expect(
+      readFile(path.join(result.agent_snapshot_path, "shiptest.yaml"), "utf8"),
+    ).rejects.toThrow();
+  });
+
   it("returns a structured error when LFS pointer files remain", async () => {
     const fixture = await createGitRepoFixture({ includeLfsPointer: true });
     const result = await buildSnapshot(baseSnapshotOptions(fixture));

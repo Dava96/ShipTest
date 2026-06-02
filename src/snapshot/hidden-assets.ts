@@ -9,11 +9,13 @@ export async function verifyHiddenShiptestAssetPaths(options: {
   readonly sourceRepoPath: string;
   readonly shiptestConfigDir: string;
   readonly evaluation: BuildSnapshotOptions["evaluation"];
+  readonly additionalHiddenShiptestPaths?: readonly string[] | undefined;
 }): Promise<SnapshotCheck[]> {
   const hiddenAssetRepositoryPaths = hiddenShiptestAssetRepositoryPaths({
     sourceRepoPath: options.sourceRepoPath,
     shiptestConfigDir: options.shiptestConfigDir,
     evaluation: options.evaluation,
+    additionalHiddenShiptestPaths: options.additionalHiddenShiptestPaths ?? [],
   });
 
   const visiblePaths: string[] = [];
@@ -48,12 +50,14 @@ function hiddenShiptestAssetRepositoryPaths(options: {
   readonly sourceRepoPath: string;
   readonly shiptestConfigDir: string;
   readonly evaluation: BuildSnapshotOptions["evaluation"];
+  readonly additionalHiddenShiptestPaths: readonly string[];
 }): string[] {
   const sourceRepoPath = path.resolve(options.sourceRepoPath);
   const assetPaths = [
     ...options.evaluation.hidden_evaluation_files.map((file) => file.shiptest_path),
     ...options.evaluation.hidden_evaluation_directories.map((directory) => directory.shiptest_path),
     ...options.evaluation.hidden_evaluation_patches.map((patch) => patch.shiptest_path),
+    ...options.additionalHiddenShiptestPaths,
   ];
 
   return assetPaths

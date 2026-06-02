@@ -67,6 +67,7 @@ async function createFixtureWorkspace(options: FixtureOptions = {}): Promise<str
   await writeFile(path.join(fixture, "tasks", "invoice.md"), "Fix invoice rounding.\n", "utf8");
   await writeFile(path.join(fixture, "hidden", "invoice.test.ts"), "// hidden test\n", "utf8");
   await writeFile(path.join(fixture, "hidden", "fixtures", "invoice.json"), "{}\n", "utf8");
+  await writeFile(path.join(fixture, "hidden", "solution.patch"), "", "utf8");
 
   await writeFile(
     path.join(fixture, "shiptest.yaml"),
@@ -97,10 +98,13 @@ benchmarks:
   - id: invoice-rounding
     type: replay_change
     base_commit: abc123
+    reference_solution:
+      patch: hidden/solution.patch
     task: tasks/invoice.md
     models:
       - ${options.benchmarkModel ?? "sonnet-4.5"}
     evaluation:
+      command: npm test -- tests/invoice.test.ts
       hidden_files:
         - shiptest_path: hidden/invoice.test.ts
           repository_path: ${options.hiddenRepositoryPath ?? "tests/invoice.test.ts"}

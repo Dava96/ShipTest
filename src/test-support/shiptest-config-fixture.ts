@@ -12,9 +12,15 @@ type GroupedBenchmarksInput = Extract<
   ShiptestConfigInput["benchmarks"],
   { readonly implementation?: unknown }
 >;
-export type BenchmarkInput = NonNullable<GroupedBenchmarksInput["implementation"]>[number] & {
-  readonly type?: "implementation" | "replay_change";
+type ImplementationBenchmarkInput = NonNullable<
+  GroupedBenchmarksInput["implementation"]
+>[number] & {
+  readonly type?: "implementation";
 };
+type ReplayChangeBenchmarkInput = NonNullable<GroupedBenchmarksInput["replay_change"]>[number] & {
+  readonly type: "replay_change";
+};
+export type BenchmarkInput = ImplementationBenchmarkInput | ReplayChangeBenchmarkInput;
 export type ProjectNameFixtureValue = string | "omit";
 export type ProjectRepoFixtureValue = string | "omit";
 
@@ -51,7 +57,10 @@ export function model(id = "gpt-5.5", overrides: Partial<ModelInput> = {}): Mode
   };
 }
 
-export function benchmark(id = "invoice", overrides: Partial<BenchmarkInput> = {}): BenchmarkInput {
+export function benchmark(
+  id = "invoice",
+  overrides: Partial<ImplementationBenchmarkInput> = {},
+): BenchmarkInput {
   return {
     id,
     type: "implementation",

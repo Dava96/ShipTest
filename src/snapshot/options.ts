@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { ShiptestConfigContext } from "../config/load-config.js";
 import { resolveConfigRelativePath } from "../config/paths.js";
+import type { ResolvedShiptestConfig } from "../config/schema.js";
 import type { BuildSnapshotOptions } from "./types.js";
 
 export function createBuildSnapshotOptions(options: {
@@ -24,6 +25,8 @@ export function createBuildSnapshotOptions(options: {
     ),
     output_root_path: path.resolve(options.output_root_path),
     shiptest_config_dir: options.context.configDir,
+    shiptest_config_path: options.context.configPath,
+    additional_hidden_shiptest_paths: referenceSolutionHiddenPaths(benchmark),
     snapshot: options.context.config.snapshot,
     agent_context: benchmark.agent_context,
     evaluation: benchmark.evaluation,
@@ -34,4 +37,13 @@ export function createBuildSnapshotOptions(options: {
   }
 
   return { ...buildOptions, base_commit: benchmark.base_commit };
+}
+
+function referenceSolutionHiddenPaths(
+  benchmark: ResolvedShiptestConfig["benchmarks"][number],
+): string[] {
+  if (benchmark.type !== "replay_change" || !("patch" in benchmark.reference_solution)) {
+    return [];
+  }
+  return [benchmark.reference_solution.patch];
 }

@@ -20,6 +20,7 @@ export type DoctorProgressPhase =
   | "required_validation"
   | "advisory_validation"
   | "prepare_baseline"
+  | "replay_validation"
   | "passed"
   | "failed";
 
@@ -44,7 +45,12 @@ export interface DoctorOptions {
 
 export interface DoctorCommandResult {
   readonly command: string;
-  readonly phase: "setup" | "required_validation" | "advisory_validation";
+  readonly phase:
+    | "setup"
+    | "required_validation"
+    | "advisory_validation"
+    | "replay_base_validation"
+    | "replay_reference_validation";
   readonly exit_code: number | null;
   readonly duration_ms: number;
   readonly stdout: string;
@@ -61,6 +67,7 @@ export interface DoctorTimings {
   readonly required_validation_ms: number;
   readonly advisory_validation_ms: number;
   readonly prepare_baseline_ms: number;
+  readonly replay_validation_ms: number;
 }
 
 export interface DoctorBaselineResult {
