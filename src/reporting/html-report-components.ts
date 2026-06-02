@@ -53,7 +53,7 @@ export function renderMetricCards(
     <div class="metric-card speed"><div class="metric-head"><span class="metric-title">Speed</span><span class="rank">median</span></div><div class="metric-value"><span class="metric-number blue">${medianSpeed === undefined ? "—" : formatNumber(medianSpeed, 1)}</span><span class="metric-label">output tokens per second</span></div></div>
     <div class="metric-card cost"><div class="metric-head"><span class="metric-title">Total estimated cost</span><span class="rank">total</span></div><div class="metric-value"><span class="metric-number red" title="${escapeAttribute(formatPreciseUsd(avgCost))}">${formatUsd(avgCost)}</span><span class="metric-label">estimated provider cost</span></div></div>
     <div class="metric-card tokens"><div class="metric-head"><span class="metric-title">Tokens</span><span class="rank">uncached</span></div><div class="metric-value"><span class="metric-number purple">${formatCompact(results.summary.uncached_tokens)}</span><span class="metric-label">input ${formatCompact(results.summary.input_tokens)} · output ${formatCompact(results.summary.output_tokens)}<br>cache read ${formatCompact(results.summary.cache_read_tokens)} · cache write ${formatCompact(results.summary.cache_write_tokens)} · total ${formatCompact(results.summary.total_tokens)}${cacheReadDominates(results.summary) ? "<br>cache reads dominate total tokens" : ""}</span></div></div>
-    <div class="metric-card pending${pendingCount > 0 ? " pending-active" : ""}"><div class="metric-head"><span class="metric-title">Pending</span><span class="rank">${formatStatus(results.status)}</span></div>${pendingCount > 0 ? renderPendingFleet(pendingCount) : '<div class="icon-row">✓ ✓ ✓</div>'}<div class="metric-value"><span class="metric-number">${pendingCount}</span><span class="metric-label">benchmarks awaiting attempts</span></div></div>
+    <div class="metric-card pending${pendingCount > 0 ? " pending-active" : ""}"><div class="metric-head"><span class="metric-title">Run completeness</span><span class="rank">${formatStatus(results.status)}</span></div>${pendingCount > 0 ? renderPendingFleet(pendingCount) : '<div class="icon-row">✓ ✓ ✓</div>'}<div class="metric-value"><span class="metric-number">${results.benchmark_results.length - pendingCount}/${results.benchmark_results.length}</span><span class="metric-label">benchmarks with attempts · ${pendingCount} pending</span></div></div>
   </section>`;
 }
 
@@ -217,9 +217,18 @@ function riskiestBenchmark(
   )[0];
 }
 
+interface ModelBarOptions {
+  readonly hrefForModel?: (modelId: string) => string;
+}
+
+function modelBarHref(modelId: string, options: ModelBarOptions | undefined): string {
+  return options?.hrefForModel?.(modelId) ?? `#model-${slugify(modelId)}`;
+}
+
 export function qualityBars(
   attempts: readonly AttemptReport[],
   pendingBenchmarks: readonly RunResults["benchmark_results"][number][],
+  options?: ModelBarOptions,
 ): BarDatum[] {
   void pendingBenchmarks;
   const aggregates = modelAggregates(attempts);
@@ -231,7 +240,7 @@ export function qualityBars(
       color: "var(--green)",
       higherIsBetter: true,
       scaleMode: "relative",
-      href: `#model-${slugify(aggregate.modelId)}`,
+      href: modelBarHref(aggregate.modelId, options),
       detail: `${aggregate.modelId}\nAverage quality: ${formatNumber(aggregate.averageQuality, 1)}\nPasses: ${aggregate.passed}/${aggregate.attempts}\nFailures counted as 0`,
     })),
     true,
@@ -241,6 +250,7 @@ export function qualityBars(
 export function speedBars(
   attempts: readonly AttemptReport[],
   pendingBenchmarks: readonly RunResults["benchmark_results"][number][],
+  options?: ModelBarOptions,
 ): BarDatum[] {
   void pendingBenchmarks;
   const aggregates = modelAggregates(attempts).filter(
@@ -254,7 +264,7 @@ export function speedBars(
       color: "var(--blue)",
       higherIsBetter: true,
       scaleMode: "relative",
-      href: `#model-${slugify(aggregate.modelId)}`,
+      href: modelBarHref(aggregate.modelId, options),
       detail: `${aggregate.modelId}\nMedian speed: ${aggregate.medianSpeed === undefined ? "not available" : `${formatNumber(aggregate.medianSpeed, 1)} output tok/sec`}\nAttempts: ${aggregate.attempts}`,
     })),
     true,
@@ -264,6 +274,7 @@ export function speedBars(
 export function costBars(
   attempts: readonly AttemptReport[],
   pendingBenchmarks: readonly RunResults["benchmark_results"][number][],
+  options?: ModelBarOptions,
 ): BarDatum[] {
   void pendingBenchmarks;
   const aggregates = modelAggregates(attempts).filter(
@@ -277,7 +288,7 @@ export function costBars(
       color: "var(--orange)",
       higherIsBetter: false,
       scaleMode: "relative",
-      href: `#model-${slugify(aggregate.modelId)}`,
+      href: modelBarHref(aggregate.modelId, options),
       detail: `${aggregate.modelId}\nAverage cost: ${aggregate.averageCost === undefined ? "not available" : formatUsd(aggregate.averageCost)}\nAttempts: ${aggregate.attempts}`,
     })),
     false,
@@ -323,6 +334,20 @@ function modelAggregates(attempts: readonly AttemptReport[]): ModelAggregate[] {
   });
 }
 
+export function qualityAttemptPanelHref(
+  attempt: AttemptReport,
+  panel: "overview" | "candidate-diff" = "overview",
+): string {
+  return `#quality-${slugify(`${attempt.benchmark_id}-${attempt.model.id}-${attempt.attempt}`)}-${panel}`;
+}
+
+export function preferredQualityAttemptHref(attempt: AttemptReport): string {
+  return qualityAttemptPanelHref(
+    attempt,
+    attempt.artifacts.candidate_patch ? "candidate-diff" : "overview",
+  );
+}
+
 function qualityScoreForAttempt(attempt: AttemptReport): number {
   if (attempt.status === "agent_failed" || !attempt.evaluation) {
     return 0;
@@ -333,7 +358,14 @@ function qualityScoreForAttempt(attempt: AttemptReport): number {
   return attempt.evaluation.verdict === "passed" ? 100 : 0;
 }
 
-export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): readonly ChartSeries[] {
+interface AttemptBarOptions {
+  readonly hrefForAttempt?: (attempt: AttemptReport) => string;
+}
+
+export function benchmarkQualitySeries(
+  attempts: readonly AttemptReport[],
+  options?: AttemptBarOptions,
+): readonly ChartSeries[] {
   return [
     chartSeries(
       "score",
@@ -345,6 +377,7 @@ export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): read
       (attempt) => qualityScoreForAttempt(attempt),
       true,
       (value) => String(Math.round(value)),
+      options,
     ),
     chartSeries(
       "changed-files",
@@ -356,6 +389,7 @@ export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): read
       (attempt) => attempt.submission?.changed_files.length ?? 0,
       false,
       (value) => String(Math.round(value)),
+      options,
     ),
     chartSeries(
       "failed-tools",
@@ -367,6 +401,7 @@ export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): read
       (attempt) => attempt.tool_usage?.summary.failed_tool_calls ?? 0,
       false,
       (value) => String(Math.round(value)),
+      options,
     ),
     chartSeries(
       "signals",
@@ -381,11 +416,15 @@ export function benchmarkQualitySeries(attempts: readonly AttemptReport[]): read
         (attempt.quality_signals?.length ?? 0),
       false,
       (value) => String(Math.round(value)),
+      options,
     ),
   ];
 }
 
-export function benchmarkSpeedSeries(attempts: readonly AttemptReport[]): readonly ChartSeries[] {
+export function benchmarkSpeedSeries(
+  attempts: readonly AttemptReport[],
+  options?: AttemptBarOptions,
+): readonly ChartSeries[] {
   return [
     chartSeries(
       "output-tps",
@@ -397,6 +436,7 @@ export function benchmarkSpeedSeries(attempts: readonly AttemptReport[]): readon
       outputTokensPerSecond,
       true,
       (value) => formatNumber(value, 1),
+      options,
     ),
     chartSeries(
       "agent-time",
@@ -408,6 +448,7 @@ export function benchmarkSpeedSeries(attempts: readonly AttemptReport[]): readon
       (attempt) => attempt.timings_ms?.agent_process_ms,
       false,
       formatDuration,
+      options,
     ),
     chartSeries(
       "total-time",
@@ -419,6 +460,7 @@ export function benchmarkSpeedSeries(attempts: readonly AttemptReport[]): readon
       (attempt) => attempt.timings_ms?.total_ms,
       false,
       formatDuration,
+      options,
     ),
     chartSeries(
       "scoring-time",
@@ -430,11 +472,15 @@ export function benchmarkSpeedSeries(attempts: readonly AttemptReport[]): readon
       (attempt) => attempt.timings_ms?.evaluation_scoring_ms,
       false,
       formatDuration,
+      options,
     ),
   ];
 }
 
-export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonly ChartSeries[] {
+export function benchmarkCostSeries(
+  attempts: readonly AttemptReport[],
+  options?: AttemptBarOptions,
+): readonly ChartSeries[] {
   return [
     chartSeries(
       "cost",
@@ -446,6 +492,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.estimated_cost_usd?.total,
       false,
       formatUsd,
+      options,
     ),
     chartSeries(
       "input",
@@ -457,6 +504,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.input_tokens,
       false,
       formatInteger,
+      options,
     ),
     chartSeries(
       "output",
@@ -468,6 +516,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.output_tokens,
       false,
       formatInteger,
+      options,
     ),
     chartSeries(
       "cache-read",
@@ -479,6 +528,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.cache_read_tokens,
       false,
       formatInteger,
+      options,
     ),
     chartSeries(
       "cache-write",
@@ -490,6 +540,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.cache_write_tokens,
       false,
       formatInteger,
+      options,
     ),
     chartSeries(
       "uncached",
@@ -501,6 +552,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.uncached_tokens,
       false,
       formatInteger,
+      options,
     ),
     chartSeries(
       "total",
@@ -512,6 +564,7 @@ export function benchmarkCostSeries(attempts: readonly AttemptReport[]): readonl
       (attempt) => attempt.agent.telemetry.usage.total_tokens,
       false,
       formatInteger,
+      options,
     ),
   ];
 }
@@ -526,6 +579,7 @@ function chartSeries(
   getValue: (attempt: AttemptReport) => number | undefined,
   higherIsBetter: boolean,
   formatValue: (value: number) => string,
+  options?: AttemptBarOptions,
 ): ChartSeries {
   const bars = attempts.map((attempt) => {
     const value = getValue(attempt);
@@ -536,7 +590,7 @@ function chartSeries(
       color,
       higherIsBetter,
       scaleMode: "relative",
-      href: `#model-${slugify(attempt.model.id)}`,
+      href: options?.hrefForAttempt?.(attempt) ?? `#model-${slugify(attempt.model.id)}`,
       detail: `${attempt.model.id}\n${title}: ${value === undefined ? "not available" : formatValue(value)}\nBenchmark: ${attempt.benchmark_id}`,
     } satisfies BarDatum;
   });
@@ -639,7 +693,7 @@ function renderBreakdownTable(
   if (rows.length === 0) {
     return `<div class="breakdown-table"><table><caption>${escapeHtml(caption)}</caption><tbody><tr><td>No attempts yet.</td></tr></tbody></table></div>`;
   }
-  return `<div class="breakdown-table"><table><caption>${escapeHtml(caption)}</caption><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr id="model-${escapeAttribute(slugify(row.modelId))}" data-model-row="${escapeAttribute(slugify(row.modelId))}">${row.cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<div class="breakdown-table"><table><caption>${escapeHtml(caption)}</caption><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr data-model-row="${escapeAttribute(slugify(row.modelId))}">${row.cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 interface OutcomeMatrixCell {
@@ -706,7 +760,7 @@ export function renderOutcomeMatrix(
       <div class="matrix-filter-group" role="group" aria-label="Outcome matrix filters">
         ${matrixFilterButton("all", "All", rows.length, true)}
         ${matrixFilterButton("disagreements", "Disagreements", disagreementCount)}
-        ${matrixFilterButton("review", "Needs review", reviewCount)}
+        ${matrixFilterButton("review", "Evaluator review", reviewCount)}
         ${matrixFilterButton("failures", "Failures", failureCount)}
         ${matrixFilterButton("passed", "All passed", allPassedCount)}
       </div>
@@ -714,7 +768,7 @@ export function renderOutcomeMatrix(
     </div>
     <div class="outcome-matrix-scroll">
       <table class="outcome-matrix-table${modelIds.length <= 4 ? " outcome-matrix-table-compact" : ""}">
-        <thead><tr><th class="matrix-benchmark-col">Benchmark</th>${modelIds.map((modelId) => `<th class="matrix-model-col"><a href="${escapeAttribute(modelDetailReportPath(modelId))}">${escapeHtml(modelId)}</a></th>`).join("")}<th class="matrix-summary-col">Review signal</th></tr></thead>
+        <thead><tr><th class="matrix-benchmark-col">Benchmark</th>${modelIds.map((modelId) => `<th class="matrix-model-col"><a href="${escapeAttribute(modelDetailReportPath(modelId))}">${escapeHtml(modelId)}</a></th>`).join("")}<th class="matrix-summary-col">Evaluator signal</th></tr></thead>
         <tbody>${rows
           .map(
             (row) =>
@@ -756,7 +810,7 @@ function outcomeMatrixCell(
       : passCount > 0
         ? `${passCount}/${attempts.length} pass`
         : reviewCount > 0
-          ? `${reviewCount}/${attempts.length} review`
+          ? `${reviewCount}/${attempts.length} eval review`
           : formatStatus(status);
   const score = selectedAttempt.evaluation?.score;
   const cost = selectedAttempt.agent.telemetry.usage.estimated_cost_usd?.total;
@@ -769,7 +823,7 @@ function outcomeMatrixCell(
     label,
     meta: metaParts.join(" · "),
     title: attempts.map(matrixAttemptTitle).join("\n"),
-    href: `${benchmarkDetailReportPath(benchmarkId)}#quality-${slugify(`${selectedAttempt.benchmark_id}-${selectedAttempt.model.id}-${selectedAttempt.attempt}`)}`,
+    href: `${benchmarkDetailReportPath(benchmarkId)}${preferredQualityAttemptHref(selectedAttempt)}`,
     attempts,
   };
 }
@@ -853,7 +907,7 @@ function renderMatrixRowSummary(
   if (passCount === attemptedCount)
     return `<span class="matrix-summary-pass">${passCount}/${attemptedCount} passed</span>`;
   if (reviewCount > 0 && failureCount === 0) {
-    return `<span class="matrix-summary-review">${reviewCount} review · ${passCount}/${attemptedCount} passed</span>`;
+    return `<span class="matrix-summary-review">${reviewCount} eval review · ${passCount}/${attemptedCount} passed</span>`;
   }
   if (failureCount > 0) {
     return `<span class="matrix-summary-fail">${failureCount} problem · ${passCount}/${attemptedCount} passed</span>`;

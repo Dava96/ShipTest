@@ -6,6 +6,7 @@ import {
   formatDuration,
   formatRunMode,
   formatStatus,
+  modelDetailReportPath,
   modelsOverviewReportPath,
   qualityBars,
   renderAttemptRows,
@@ -67,7 +68,7 @@ ${reportStyles}
   ${renderMetricCards(results, attempts, pendingCount)}
 
   <section id="outcome-matrix">
-    <div class="section-head"><div class="section-title">Outcome matrix</div><div class="muted small">Benchmark × model cells. Click a cell to inspect patch, logs, telemetry, and evaluation evidence.</div></div>
+    <div class="section-head"><div class="section-title">Outcome matrix</div><div class="muted small">Benchmark × model cells. Click a cell to inspect the attempt; ShipTest opens the candidate diff when a patch exists, otherwise the overview evidence.</div></div>
     ${renderOutcomeMatrix(results, attempts)}
   </section>
 
@@ -80,9 +81,9 @@ ${reportStyles}
       <div class="panel-tabs"><a class="tab active" href="#chart-quality">Quality</a><a class="tab" href="#chart-speed">Speed</a><a class="tab" href="#chart-cost">Cost</a></div>
       <div class="panel-body">
         <div class="chart-grid">
-          ${renderBarChart("chart-quality", "Average Quality by Model", "Average score across attempted benchmarks · Failures count as 0", "var(--primary)", qualityBars(attempts, pendingBenchmarks))}
-          ${renderBarChart("chart-speed", "Median Speed by Model", "Median output tokens per second across attempts · Higher is better", "var(--yellow)", speedBars(attempts, pendingBenchmarks))}
-          ${renderBarChart("chart-cost", "Average Cost by Model", "Average estimated USD per attempt · Lower is better", "var(--orange)", costBars(attempts, pendingBenchmarks))}
+          ${renderBarChart("chart-quality", "Average Quality by Model", "Average score across attempted benchmarks · Failures count as 0", "var(--primary)", qualityBars(attempts, pendingBenchmarks, { hrefForModel: modelDetailReportPath }))}
+          ${renderBarChart("chart-speed", "Median Speed by Model", "Median output tokens per second across attempts · Higher is better", "var(--yellow)", speedBars(attempts, pendingBenchmarks, { hrefForModel: modelDetailReportPath }))}
+          ${renderBarChart("chart-cost", "Average Cost by Model", "Average estimated USD per attempt · Lower is better", "var(--orange)", costBars(attempts, pendingBenchmarks, { hrefForModel: modelDetailReportPath }))}
         </div>
       </div>
     </div>

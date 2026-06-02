@@ -1,7 +1,8 @@
 (() => {
   const themeKey = "shiptest-report-theme";
+  const normalizeTheme = (theme) => (theme === "boring" ? "mostly-mono" : theme);
   const applyTheme = (theme) => {
-    document.body.dataset.theme = theme || "shiptest";
+    document.body.dataset.theme = normalizeTheme(theme) || "shiptest";
     for (const select of document.querySelectorAll("[data-theme-select]")) {
       select.value = document.body.dataset.theme;
     }
@@ -12,6 +13,49 @@
       localStorage.setItem(themeKey, select.value);
       applyTheme(select.value);
     });
+  }
+
+  for (const taskPanel of document.querySelectorAll("[data-task-panel]")) {
+    const toggle = taskPanel.querySelector("[data-task-toggle]");
+    toggle?.addEventListener("click", () => {
+      const expanded = taskPanel.getAttribute("data-task-expanded") === "true";
+      taskPanel.setAttribute("data-task-expanded", expanded ? "false" : "true");
+      toggle.textContent = expanded ? "Show full task" : "Collapse task";
+    });
+  }
+
+  const topbarLinks = Array.from(document.querySelectorAll('.topbar .nav-pills a[href^="#"]'))
+    .map((link) => {
+      let target = null;
+      try {
+        target = document.getElementById(decodeURIComponent(new URL(link.href).hash.slice(1)));
+      } catch {
+        target = null;
+      }
+      return { link, target };
+    })
+    .filter((item) => item.target !== null);
+  const setActiveTopbarLink = (activeLink) => {
+    for (const { link } of topbarLinks) {
+      link.classList.toggle("dark", link === activeLink);
+    }
+  };
+  const syncActiveTopbarLink = () => {
+    if (topbarLinks.length === 0) return;
+    const marker = window.scrollY + Math.min(180, window.innerHeight * 0.28);
+    let active = topbarLinks[0];
+    for (const item of topbarLinks) {
+      if (item.target && item.target.offsetTop <= marker) active = item;
+    }
+    setActiveTopbarLink(active.link);
+  };
+  for (const { link } of topbarLinks) {
+    link.addEventListener("click", () => setActiveTopbarLink(link));
+  }
+  if (topbarLinks.length > 0) {
+    window.addEventListener("scroll", syncActiveTopbarLink, { passive: true });
+    window.addEventListener("hashchange", syncActiveTopbarLink);
+    syncActiveTopbarLink();
   }
 
   for (const tabRoot of document.querySelectorAll("[data-tabs]")) {
@@ -77,8 +121,77 @@
     applyMatrixFilters();
   }
 
+  const setPatchFileCollapsed = (patchFile, collapsed) => {
+    if (!patchFile) return;
+    patchFile.dataset.collapsed = collapsed ? "true" : "false";
+    const toggle = patchFile.querySelector("[data-patch-file-toggle]");
+    const body = patchFile.querySelector("[data-patch-file-body]");
+    const icon = patchFile.querySelector(".patch-file-toggle-icon");
+    if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (body) body.hidden = collapsed;
+    if (icon) icon.textContent = collapsed ? "+" : "−";
+  };
+
+  for (const patchFile of document.querySelectorAll("[data-patch-file]")) {
+    setPatchFileCollapsed(patchFile, patchFile.dataset.collapsed === "true");
+    patchFile.querySelector("[data-patch-file-toggle]")?.addEventListener("click", () => {
+      setPatchFileCollapsed(patchFile, patchFile.dataset.collapsed !== "true");
+    });
+  }
+
+  for (const button of document.querySelectorAll(
+    "[data-patch-expand-all], [data-patch-collapse-all]",
+  )) {
+    button.addEventListener("click", () => {
+      const root = button.closest(".candidate-diff") ?? document;
+      const collapsed = button.hasAttribute("data-patch-collapse-all");
+      for (const patchFile of root.querySelectorAll("[data-patch-file]")) {
+        setPatchFileCollapsed(patchFile, collapsed);
+      }
+    });
+  }
+
+  const selectQualityTab = (attempt, tabId) => {
+    if (!attempt || !tabId) return;
+    const buttons = Array.from(attempt.querySelectorAll("[data-quality-tab-button]"));
+    const panels = Array.from(attempt.querySelectorAll("[data-quality-tab-panel]"));
+    for (const button of buttons) {
+      const active = button.getAttribute("data-quality-tab-button") === tabId;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    for (const panel of panels) {
+      panel.hidden = panel.getAttribute("data-quality-tab-panel") !== tabId;
+    }
+  };
+
+  const expandPatchFileFromHash = (hash) => {
+    let id = hash.startsWith("#") ? hash.slice(1) : hash;
+    try {
+      id = decodeURIComponent(id);
+    } catch {
+      // Keep the raw hash fragment if decoding fails.
+    }
+    const target = document.getElementById(id);
+    if (target?.matches?.("[data-patch-file]")) {
+      const parentDetail = target.closest("details[data-quality-attempt]");
+      if (parentDetail) parentDetail.open = true;
+      setPatchFileCollapsed(target, false);
+      target.scrollIntoView({ block: "start" });
+      return true;
+    }
+    return false;
+  };
+
+  for (const link of document.querySelectorAll('.patch-file-tree a[href^="#"]')) {
+    link.addEventListener("click", () => {
+      expandPatchFileFromHash(link.getAttribute("href") ?? "");
+    });
+  }
+
   const openHashDetail = () => {
     if (!window.location.hash) return;
+    if (expandPatchFileFromHash(window.location.hash)) return;
     let id = window.location.hash.slice(1);
     try {
       id = decodeURIComponent(id);
@@ -86,6 +199,15 @@
       // Keep the raw hash fragment if decoding fails.
     }
     const target = document.getElementById(id);
+    if (target?.matches?.("[data-quality-tab-panel]")) {
+      const parentDetail = target.closest("details[data-quality-attempt]");
+      if (parentDetail) {
+        parentDetail.open = true;
+        selectQualityTab(parentDetail, target.getAttribute("data-quality-tab-panel"));
+      }
+      target.scrollIntoView({ block: "start" });
+      return;
+    }
     if (target?.tagName.toLowerCase() === "details") {
       target.open = true;
       target.scrollIntoView({ block: "start" });
@@ -94,7 +216,6 @@
   window.addEventListener("hashchange", openHashDetail);
   openHashDetail();
 
-  let pinnedModelId = null;
   const clearModelHighlights = () => {
     for (const row of document.querySelectorAll("[data-model-row].model-row-highlight")) {
       row.classList.remove("model-row-highlight");
@@ -122,28 +243,10 @@
       if (bar.dataset.boundModelBar === "true") continue;
       bar.dataset.boundModelBar = "true";
       const modelId = bar.getAttribute("data-model-bar");
-      bar.addEventListener("mouseenter", () => {
-        if (pinnedModelId === null) highlightModel(modelId);
-      });
-      bar.addEventListener("focus", () => {
-        if (pinnedModelId === null) highlightModel(modelId);
-      });
-      bar.addEventListener("mouseleave", () => {
-        if (pinnedModelId === null) clearModelHighlights();
-      });
-      bar.addEventListener("blur", () => {
-        if (pinnedModelId === null) clearModelHighlights();
-      });
-      bar.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (pinnedModelId === modelId) {
-          pinnedModelId = null;
-          clearModelHighlights();
-          return;
-        }
-        pinnedModelId = modelId;
-        highlightModel(modelId);
-      });
+      bar.addEventListener("mouseenter", () => highlightModel(modelId));
+      bar.addEventListener("focus", () => highlightModel(modelId));
+      bar.addEventListener("mouseleave", clearModelHighlights);
+      bar.addEventListener("blur", clearModelHighlights);
     }
   };
 
@@ -235,7 +338,6 @@
       if (select) select.value = selected.id;
       renderChartSeries(chart, selected);
       bindModelBars(chart);
-      if (pinnedModelId !== null) highlightModel(pinnedModelId);
     }
   };
   for (const [group, charts] of chartGroups.entries()) {
@@ -269,20 +371,9 @@
         }
       });
       const buttons = Array.from(attempt.querySelectorAll("[data-quality-tab-button]"));
-      const panels = Array.from(attempt.querySelectorAll("[data-quality-tab-panel]"));
-      const selectTab = (tabId) => {
-        for (const button of buttons) {
-          const active = button.getAttribute("data-quality-tab-button") === tabId;
-          button.classList.toggle("active", active);
-          button.setAttribute("aria-selected", active ? "true" : "false");
-        }
-        for (const panel of panels) {
-          panel.hidden = panel.getAttribute("data-quality-tab-panel") !== tabId;
-        }
-      };
       for (const button of buttons) {
         button.addEventListener("click", () =>
-          selectTab(button.getAttribute("data-quality-tab-button")),
+          selectQualityTab(attempt, button.getAttribute("data-quality-tab-button")),
         );
       }
     }
@@ -339,7 +430,7 @@
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "shiptest-quality-details.json";
+      link.download = "shiptest-visible-quality-rows.json";
       link.click();
       URL.revokeObjectURL(url);
     });

@@ -69,6 +69,7 @@ describe("HTML report", () => {
         artifacts: {
           attempt_json: "benchmarks/invoice/attempts/001/attempt.json",
           candidate_patch: "benchmarks/invoice/attempts/001/candidate.patch?x=<y>",
+          agent_task: "benchmarks/invoice/attempts/001/agent/task.md",
         },
       }),
       "utf8",
@@ -76,6 +77,14 @@ describe("HTML report", () => {
     await writeFile(
       path.join(root, "benchmarks", "invoice", "attempts", "001", "candidate.patch"),
       "diff --git a/invoice.ts b/invoice.ts\n",
+      "utf8",
+    );
+    await mkdir(path.join(root, "benchmarks", "invoice", "attempts", "001", "agent"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(root, "benchmarks", "invoice", "attempts", "001", "agent", "task.md"),
+      "# Fix invoice rounding\n\nUse currency rounding rules.\n",
       "utf8",
     );
     await writeFile(
@@ -135,9 +144,9 @@ describe("HTML report", () => {
     expect(await readFile(path.join(root, "model-gpt-5-5-test.html"), "utf8")).toContain(
       "Strengths radar",
     );
-    expect(await readFile(path.join(root, "benchmark-invoice.html"), "utf8")).toContain(
-      "Quality details",
-    );
+    const benchmarkHtml = await readFile(path.join(root, "benchmark-invoice.html"), "utf8");
+    expect(benchmarkHtml).toContain("Quality details");
+    expect(benchmarkHtml).toContain("Task prompt");
   });
 
   it("renders attempts without evaluation or patch artifacts", async () => {

@@ -50,8 +50,8 @@ ${reportStyles}
   ${renderTopbar({
     ariaLabel: "Models report navigation",
     nav: [
-      { label: "← Suite report", href: "report.html", active: true },
-      { label: "Radar", href: "#model-radar" },
+      { label: "← Suite report", href: "report.html" },
+      { label: "Radar", href: "#model-radar", active: true },
       { label: "Table", href: "#model-table" },
     ],
   })}

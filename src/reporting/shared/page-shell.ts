@@ -10,7 +10,7 @@ export function renderTopbar(options: {
   readonly ariaLabel: string;
   readonly nav: readonly NavPill[];
 }): string {
-  return `<header class="topbar">
+  return `<header class="topbar" id="top">
     <div class="brand"><span class="brand-mark"></span> ShipTest Analysis</div>
     <nav class="nav-pills" aria-label="${escapeAttribute(options.ariaLabel)}">
       ${options.nav.map((item) => `<a class="pill${item.active ? " dark" : ""}" href="${escapeAttribute(item.href)}">${escapeHtml(item.label)}</a>`).join("\n      ")}
@@ -22,7 +22,7 @@ export function renderTopbar(options: {
 export function renderThemeSelect(): string {
   return `<select class="theme-select" data-theme-select aria-label="Report theme">
       <option value="shiptest">ShipTest theme</option>
-      <option value="boring">Boring theme</option>
+      <option value="mostly-mono">Mostly-mono theme</option>
     </select>`;
 }
 
