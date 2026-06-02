@@ -40,6 +40,60 @@
     );
   }
 
+  for (const matrixRoot of document.querySelectorAll("[data-outcome-matrix]")) {
+    const rows = Array.from(matrixRoot.querySelectorAll("[data-matrix-row]"));
+    const buttons = Array.from(matrixRoot.querySelectorAll("[data-matrix-filter]"));
+    const search = matrixRoot.querySelector("[data-matrix-search]");
+    const count = matrixRoot.querySelector("[data-matrix-count]");
+    let activeFilter =
+      buttons.find((button) => button.classList.contains("active"))?.dataset.matrixFilter ?? "all";
+    const rowMatchesFilter = (row) => {
+      if (activeFilter === "disagreements") return row.dataset.disagreement === "true";
+      if (activeFilter === "review") return row.dataset.hasReview === "true";
+      if (activeFilter === "failures") return row.dataset.hasFailure === "true";
+      if (activeFilter === "passed") return row.dataset.allPassed === "true";
+      return true;
+    };
+    const applyMatrixFilters = () => {
+      const query = (search?.value ?? "").trim().toLowerCase();
+      let visible = 0;
+      for (const row of rows) {
+        const show =
+          rowMatchesFilter(row) && (query === "" || (row.dataset.search ?? "").includes(query));
+        row.hidden = !show;
+        if (show) visible += 1;
+      }
+      if (count)
+        count.textContent = `${visible} of ${rows.length} benchmark${rows.length === 1 ? "" : "s"}`;
+    };
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.matrixFilter ?? "all";
+        for (const other of buttons) other.classList.toggle("active", other === button);
+        applyMatrixFilters();
+      });
+    }
+    search?.addEventListener("input", applyMatrixFilters);
+    applyMatrixFilters();
+  }
+
+  const openHashDetail = () => {
+    if (!window.location.hash) return;
+    let id = window.location.hash.slice(1);
+    try {
+      id = decodeURIComponent(id);
+    } catch {
+      // Keep the raw hash fragment if decoding fails.
+    }
+    const target = document.getElementById(id);
+    if (target?.tagName.toLowerCase() === "details") {
+      target.open = true;
+      target.scrollIntoView({ block: "start" });
+    }
+  };
+  window.addEventListener("hashchange", openHashDetail);
+  openHashDetail();
+
   let pinnedModelId = null;
   const clearModelHighlights = () => {
     for (const row of document.querySelectorAll("[data-model-row].model-row-highlight")) {

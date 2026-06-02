@@ -117,6 +117,9 @@ describe("HTML report", () => {
 
     const html = await readFile(reportPath, "utf8");
     expect(html).toContain("ShipTest report");
+    expect(html).toContain("Outcome matrix");
+    expect(html).toContain("Benchmark × model cells");
+    expect(html).toContain("data-outcome-matrix");
     expect(html).toContain("run-&lt;1&gt;");
     expect(html).toContain("invoice&lt;script&gt;");
     expect(html).toContain("gpt-5.5&amp;test");
@@ -125,6 +128,7 @@ describe("HTML report", () => {
     expect(html).toContain("$0.12");
     expect(html).toContain('title="$0.1235"');
     expect(html).toContain("benchmarks/invoice/attempts/001/candidate.patch?x=&lt;y&gt;");
+    expect(html).toContain("benchmark-invoice.html#quality-invoice-script-gpt-5-5-test-1");
     expect(await readFile(path.join(root, "models.html"), "utf8")).toContain(
       "Model capability comparison",
     );
