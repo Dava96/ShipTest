@@ -76,6 +76,11 @@ export type { DoctorCheck } from "./doctor/check-codes.js";
 export { DoctorCheckCode } from "./doctor/check-codes.js";
 export { runDoctor } from "./doctor/run-doctor.js";
 export type {
+  BenchmarkValidityBaseHiddenResult,
+  BenchmarkValidityReferenceHiddenResult,
+  BenchmarkValidityResult,
+  BenchmarkValidityStatus,
+  BenchmarkValidityTrialResult,
   DoctorBenchmarkResult,
   DoctorCommandResult,
   DoctorOptions,

@@ -51,6 +51,7 @@ export interface DoctorCommandResult {
     | "advisory_validation"
     | "replay_base_validation"
     | "replay_reference_validation";
+  readonly trial?: number;
   readonly exit_code: number | null;
   readonly duration_ms: number;
   readonly stdout: string;
@@ -68,6 +69,45 @@ export interface DoctorTimings {
   readonly advisory_validation_ms: number;
   readonly prepare_baseline_ms: number;
   readonly replay_validation_ms: number;
+}
+
+export type BenchmarkValidityStatus =
+  | "valid"
+  | "invalid_base"
+  | "invalid_reference_solution"
+  | "hidden_payload_apply_failed"
+  | "flaky_verifier"
+  | "environment_failure";
+
+export type BenchmarkValidityBaseHiddenResult =
+  | "failed_as_expected"
+  | "unexpectedly_passed"
+  | "flaky"
+  | "not_run"
+  | "environment_failure";
+
+export type BenchmarkValidityReferenceHiddenResult =
+  | "passed"
+  | "failed"
+  | "flaky"
+  | "not_run"
+  | "environment_failure";
+
+export interface BenchmarkValidityTrialResult {
+  readonly trial: number;
+  readonly exit_code: number | null;
+  readonly duration_ms: number;
+  readonly passed_expectation: boolean;
+}
+
+export interface BenchmarkValidityResult {
+  readonly status: BenchmarkValidityStatus;
+  readonly flakiness_runs: number;
+  readonly flaky: boolean;
+  readonly base_hidden_result: BenchmarkValidityBaseHiddenResult;
+  readonly reference_hidden_result: BenchmarkValidityReferenceHiddenResult;
+  readonly base_trials: readonly BenchmarkValidityTrialResult[];
+  readonly reference_trials: readonly BenchmarkValidityTrialResult[];
 }
 
 export interface DoctorBaselineResult {
@@ -90,6 +130,7 @@ export interface DoctorBenchmarkResult {
   readonly baseline_result: string;
   readonly timings_ms: DoctorTimings;
   readonly snapshot_manifest?: SnapshotManifest;
+  readonly benchmark_validity?: BenchmarkValidityResult;
   readonly prepared_baseline_path?: string;
   readonly prepared_baseline_metadata?: PreparedBaselineMetadata;
   readonly prepared_baseline_timings_ms?: PreparedBaselineTimings;

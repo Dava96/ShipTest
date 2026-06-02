@@ -9,7 +9,7 @@ import {
   benchmark as configBenchmark,
   createResolvedShiptestConfig,
 } from "../test-support/shiptest-config-fixture.js";
-import type { GitOperations } from "../utils/git.js";
+import { type GitOperations, git } from "../utils/git.js";
 import { EvaluationCheckCode } from "./check-codes.js";
 import { applyHiddenEvaluationPayload } from "./hidden-payload.js";
 
@@ -252,6 +252,55 @@ describe("hidden evaluation payload", () => {
     await expect(
       readFile(path.join(fixture.workspacePath, "existing", "new.json"), "utf8"),
     ).resolves.toBe("new\n");
+  });
+
+  it("can reset paths touched by hidden patches before applying verifier patches", async () => {
+    const fixture = await createFixture();
+    await writeFile(path.join(fixture.workspacePath, "test.txt"), "base\n", "utf8");
+    await git(["init", "--initial-branch", "main"], fixture.workspacePath);
+    await git(["config", "user.email", "test@shiptest.local"], fixture.workspacePath);
+    await git(["config", "user.name", "ShipTest Test"], fixture.workspacePath);
+    await git(["add", "-A"], fixture.workspacePath);
+    await git(["commit", "-m", "baseline"], fixture.workspacePath);
+    await writeFile(path.join(fixture.workspacePath, "test.txt"), "candidate\n", "utf8");
+    await writeFile(
+      path.join(fixture.configDir, "hidden", "change.patch"),
+      `diff --git a/test.txt b/test.txt
+--- a/test.txt
++++ b/test.txt
+@@ -1 +1 @@
+-base
++hidden
+`,
+      "utf8",
+    );
+
+    const result = await applyHiddenEvaluationPayload({
+      workspacePath: fixture.workspacePath,
+      configDir: fixture.configDir,
+      evaluation: evaluationConfig({
+        hidden_patches: [
+          {
+            shiptest_path: "hidden/change.patch",
+            reset_touched_paths_before_apply: true,
+          },
+        ],
+        hidden_patch_policy: "advanced_allow_collision_risk",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        code: EvaluationCheckCode.HiddenEvaluationPatchResetTouchedPaths,
+        paths: ["test.txt"],
+      }),
+    );
+    await expect(
+      readFile(path.join(fixture.workspacePath, "test.txt"), "utf8").then((contents) =>
+        contents.replaceAll("\r\n", "\n"),
+      ),
+    ).resolves.toBe("hidden\n");
   });
 
   it("applies hidden patches through git operations and reports patch failures", async () => {

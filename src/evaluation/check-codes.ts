@@ -8,6 +8,7 @@ export const EvaluationCheckCode = {
   HiddenEvaluationFileApplied: "EVALUATION_HIDDEN_FILE_APPLIED",
   HiddenEvaluationDirectoryApplied: "EVALUATION_HIDDEN_DIRECTORY_APPLIED",
   HiddenEvaluationPatchApplied: "EVALUATION_HIDDEN_PATCH_APPLIED",
+  HiddenEvaluationPatchResetTouchedPaths: "EVALUATION_HIDDEN_PATCH_RESET_TOUCHED_PATHS",
   HiddenEvaluationApplyFailed: "EVALUATION_HIDDEN_APPLY_FAILED",
   ProtectedPathModified: "EVALUATION_PROTECTED_PATH_MODIFIED",
   ScoringCommandPassed: "EVALUATION_SCORING_COMMAND_PASSED",

@@ -433,40 +433,112 @@ benchmarks:
     ).toBe(false);
   });
 
-  it("accepts replay benchmarks with a local verifier and reference solution patch", () => {
-    expect(
-      ShiptestConfigSchema.safeParse({
-        version: 1,
-        project: { name: "p", repo: "." },
-        environment: { validate: ["npm test"] },
-        models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
-        defaults: {
-          models: ["sonnet"],
-          limits: {},
-          agent_view: {},
-          evaluation: { command: "npm test" },
-        },
-        benchmarks: [
-          {
-            id: "invoice",
-            type: "replay_change",
-            base_commit: "abc123",
-            reference_solution: { patch: "hidden/solution.patch" },
-            task: "task.md",
-            evaluation: {
-              command: "npm test -- tests/hidden/invoice.test.ts",
-              hidden_files: [
-                {
-                  shiptest_path: "hidden/invoice.test.ts",
-                  repository_path: "tests/hidden/invoice.test.ts",
-                  write_mode: "create_new",
-                },
-              ],
-            },
+  it("accepts replay benchmarks with a local verifier and defaults replay validation to one run", () => {
+    const parsed = ShiptestConfigSchema.safeParse({
+      version: 1,
+      project: { name: "p", repo: "." },
+      environment: { validate: ["npm test"] },
+      models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      defaults: {
+        models: ["sonnet"],
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [
+        {
+          id: "invoice",
+          type: "replay_change",
+          base_commit: "abc123",
+          reference_solution: { patch: "hidden/solution.patch" },
+          task: "task.md",
+          evaluation: {
+            command: "npm test -- tests/hidden/invoice.test.ts",
+            hidden_files: [
+              {
+                shiptest_path: "hidden/invoice.test.ts",
+                repository_path: "tests/hidden/invoice.test.ts",
+                write_mode: "create_new",
+              },
+            ],
           },
-        ],
-      }).success,
-    ).toBe(true);
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) {
+      throw parsed.error;
+    }
+    const replayBenchmark = parsed.data.benchmarks.find(
+      (benchmark) => benchmark.type === "replay_change",
+    );
+    expect(replayBenchmark?.replay_validation).toEqual({ flakiness_runs: 1 });
+  });
+
+  it("accepts custom replay validation flakiness runs", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "p", repo: "." },
+      environment: { validate: ["npm test"] },
+      models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      defaults: {
+        models: ["sonnet"],
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [
+        {
+          id: "invoice",
+          type: "replay_change",
+          base_commit: "abc123",
+          reference_solution: { patch: "hidden/solution.patch" },
+          replay_validation: { flakiness_runs: 3 },
+          task: "task.md",
+          evaluation: {
+            command: "npm test -- tests/hidden/invoice.test.ts",
+            hidden_files: [
+              {
+                shiptest_path: "hidden/invoice.test.ts",
+                repository_path: "tests/hidden/invoice.test.ts",
+                write_mode: "create_new",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const replayBenchmark = config.benchmarks.find(
+      (benchmark) => benchmark.type === "replay_change",
+    );
+    expect(replayBenchmark?.replay_validation).toEqual({ flakiness_runs: 3 });
+  });
+
+  it("defaults hidden patch path reset to disabled", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "p", repo: "." },
+      environment: { validate: ["npm test"] },
+      models: [{ id: "sonnet", provider: "anthropic", model: "claude" }],
+      defaults: {
+        models: ["sonnet"],
+        limits: {},
+        agent_view: {},
+        evaluation: {
+          command: "npm test",
+          hidden_patches: [{ shiptest_path: "hidden/verifier.patch" }],
+          hidden_patch_policy: "advanced_allow_collision_risk",
+        },
+      },
+      benchmarks: [{ id: "invoice", type: "implementation", task: "task.md" }],
+    });
+
+    expect(config.benchmarks[0]?.evaluation.hidden_evaluation_patches[0]).toMatchObject({
+      shiptest_path: "hidden/verifier.patch",
+      reset_touched_paths_before_apply: false,
+    });
   });
 
   it("requires an explicit policy for hidden evaluation patches", () => {

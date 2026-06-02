@@ -227,6 +227,7 @@ export const HiddenEvaluationDirectorySchema = z
 export const HiddenEvaluationPatchSchema = z
   .object({
     shiptest_path: nonEmptyString,
+    reset_touched_paths_before_apply: z.boolean().default(false),
   })
   .strict();
 
@@ -416,6 +417,13 @@ export const ReferenceSolutionSchema = z
     "reference_solution must define exactly one of commit or patch",
   );
 
+export const ReplayValidationSchema = z
+  .object({
+    flakiness_runs: positiveInteger.default(1),
+  })
+  .strict()
+  .prefault({});
+
 const ImplementationBenchmarkCaseSchema = z
   .object({
     ...BenchmarkCommonShape,
@@ -429,6 +437,7 @@ const ReplayChangeBenchmarkCaseSchema = z
     ...BenchmarkCommonShape,
     base_commit: nonEmptyString,
     reference_solution: ReferenceSolutionSchema,
+    replay_validation: ReplayValidationSchema,
     evaluation: ReplayChangeEvaluationInputSchema,
   })
   .strict();

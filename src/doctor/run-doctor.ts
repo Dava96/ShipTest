@@ -12,6 +12,7 @@ import { CheckSeverity } from "../checks/severity.js";
 import type { ShiptestConfigContext } from "../config/load-config.js";
 import { resolveConfigRelativePath } from "../config/paths.js";
 import { BenchmarkType, CommandsRunIn } from "../config/schema-values.js";
+import { EvaluationCheckCode } from "../evaluation/check-codes.js";
 import { applyHiddenEvaluationPayload } from "../evaluation/hidden-payload.js";
 import { runShellCommand } from "../execution/run-command.js";
 import { buildSnapshot } from "../snapshot/build-snapshot.js";
@@ -26,6 +27,10 @@ import { git } from "../utils/git.js";
 import { sha256Json } from "../utils/hash.js";
 import { type DoctorCheck, DoctorCheckCode } from "./check-codes.js";
 import {
+  type BenchmarkValidityBaseHiddenResult,
+  type BenchmarkValidityReferenceHiddenResult,
+  type BenchmarkValidityResult,
+  type BenchmarkValidityTrialResult,
   type DoctorBaselineResult,
   type DoctorBenchmarkResult,
   type DoctorCommandResult,
@@ -496,6 +501,15 @@ function createDoctorResultIndex(result: DoctorResult): object {
       baseline_id: benchmarkResult.baseline_id,
       baseline_result: benchmarkResult.baseline_result,
       timings_ms: benchmarkResult.timings_ms,
+      ...(benchmarkResult.benchmark_validity
+        ? {
+            benchmark_validity: {
+              status: benchmarkResult.benchmark_validity.status,
+              flaky: benchmarkResult.benchmark_validity.flaky,
+              flakiness_runs: benchmarkResult.benchmark_validity.flakiness_runs,
+            },
+          }
+        : {}),
       doctor_result: path
         .join("benchmarks", sanitizePathSegment(benchmarkResult.benchmark_id), "doctor-result.json")
         .replaceAll(path.sep, "/"),
@@ -545,9 +559,15 @@ async function runBenchmarkDoctor(
   }).catch((error) => ({
     ok: false,
     commands: [],
+    benchmark_validity: createBenchmarkValidityResult({
+      status: "environment_failure",
+      flakinessRuns: benchmark.replay_validation.flakiness_runs,
+      baseTrials: [],
+      referenceTrials: [],
+    }),
     checks: [
       {
-        code: DoctorCheckCode.ReplayReferenceValidationFailed,
+        code: DoctorCheckCode.ReplayValidationEnvironmentFailed,
         severity: CheckSeverity.Error,
         message: `Replay validation failed. ${formatError(error)}`,
       },
@@ -564,6 +584,7 @@ async function runBenchmarkDoctor(
       replay_validation_ms:
         baselineBenchmarkResult.timings_ms.replay_validation_ms + replayValidationMs,
     },
+    benchmark_validity: replayValidationResult.benchmark_validity,
     commands: [...baselineBenchmarkResult.commands, ...replayValidationResult.commands],
     checks: [...baselineBenchmarkResult.checks, ...replayValidationResult.checks],
   };
@@ -611,88 +632,333 @@ async function runReplayBenchmarkValidation(
   readonly ok: boolean;
   readonly commands: readonly DoctorCommandResult[];
   readonly checks: readonly DoctorCheck[];
+  readonly benchmark_validity: BenchmarkValidityResult;
 }> {
   const commands: DoctorCommandResult[] = [];
   const checks: DoctorCheck[] = [];
+  const baseTrials: BenchmarkValidityTrialResult[] = [];
+  const referenceTrials: BenchmarkValidityTrialResult[] = [];
+  const flakinessRuns = benchmark.replay_validation.flakiness_runs;
 
   const referencePatch = await loadReferenceSolutionPatch(context, benchmark);
 
-  const baseWorkspacePath = path.join(options.workspaceRootPath, "base");
-  await prepareDoctorWorkspace(options.preparedBaselinePath, baseWorkspacePath);
-  const baseHiddenResult = await applyReplayHiddenPayload(context, benchmark, baseWorkspacePath);
-  checks.push(...baseHiddenResult.checks);
-  if (!baseHiddenResult.ok) {
-    return { ok: false, commands, checks };
-  }
-  const baseCommand = await runShellCommand({
-    command: benchmark.evaluation.scoring_command,
-    cwd: baseWorkspacePath,
-    maxOutputBytes: options.commandOutputMaxBytes,
-  });
-  commands.push({ ...baseCommand, phase: "replay_base_validation" });
-  if (baseCommand.exit_code === 0) {
-    checks.push({
-      code: DoctorCheckCode.ReplayBaseValidationUnexpectedlyPassed,
-      severity: CheckSeverity.Error,
-      message:
-        "Replay benchmark hidden verifier unexpectedly passed on the base commit. The verifier must fail before the reference solution is applied.",
+  for (let trial = 1; trial <= flakinessRuns; trial += 1) {
+    const baseWorkspacePath = path.join(
+      options.workspaceRootPath,
+      "base",
+      trialDirectoryName(trial),
+    );
+    await prepareDoctorWorkspace(options.preparedBaselinePath, baseWorkspacePath);
+    const baseHiddenResult = await applyReplayHiddenPayload(context, benchmark, baseWorkspacePath);
+    checks.push(...baseHiddenResult.checks);
+    if (!baseHiddenResult.ok) {
+      return replayValidationResult({
+        status: "hidden_payload_apply_failed",
+        flakinessRuns,
+        baseTrials,
+        referenceTrials,
+        commands,
+        checks,
+      });
+    }
+    const baseCommand = await runShellCommand({
+      command: benchmark.evaluation.scoring_command,
+      cwd: baseWorkspacePath,
+      maxOutputBytes: options.commandOutputMaxBytes,
     });
-  } else {
-    checks.push({
-      code: DoctorCheckCode.ReplayBaseValidationFailedAsExpected,
-      severity: CheckSeverity.Pass,
-      message: "Replay benchmark hidden verifier failed on the base commit as expected.",
+    commands.push({ ...baseCommand, phase: "replay_base_validation", trial });
+    baseTrials.push({
+      trial,
+      exit_code: baseCommand.exit_code,
+      duration_ms: baseCommand.duration_ms,
+      passed_expectation: baseCommand.exit_code !== null && baseCommand.exit_code !== 0,
     });
-  }
-
-  const referenceWorkspacePath = path.join(options.workspaceRootPath, "reference");
-  await prepareDoctorWorkspace(options.preparedBaselinePath, referenceWorkspacePath);
-  const referencePatchApplyResult = await applyReferencePatch(
-    referenceWorkspacePath,
-    referencePatch,
-  );
-  if (!referencePatchApplyResult.ok) {
-    checks.push({
-      code: DoctorCheckCode.ReplayReferencePatchApplyFailed,
-      severity: CheckSeverity.Error,
-      message: referencePatchApplyResult.message,
-    });
-    return { ok: false, commands, checks };
-  }
-  const referenceHiddenResult = await applyReplayHiddenPayload(
-    context,
-    benchmark,
-    referenceWorkspacePath,
-  );
-  checks.push(...referenceHiddenResult.checks);
-  if (!referenceHiddenResult.ok) {
-    return { ok: false, commands, checks };
-  }
-  const referenceCommand = await runShellCommand({
-    command: benchmark.evaluation.scoring_command,
-    cwd: referenceWorkspacePath,
-    maxOutputBytes: options.commandOutputMaxBytes,
-  });
-  commands.push({ ...referenceCommand, phase: "replay_reference_validation" });
-  if (referenceCommand.exit_code === 0) {
-    checks.push({
-      code: DoctorCheckCode.ReplayReferenceValidationPassed,
-      severity: CheckSeverity.Pass,
-      message: "Replay benchmark hidden verifier passed with the reference solution.",
-    });
-  } else {
-    checks.push({
-      code: DoctorCheckCode.ReplayReferenceValidationFailed,
-      severity: CheckSeverity.Error,
-      message: `Replay benchmark hidden verifier failed with the reference solution. Exit code: ${referenceCommand.exit_code ?? "null"}.`,
-    });
+    if (baseCommand.exit_code === null) {
+      checks.push(createReplayEnvironmentFailureCheck("base", trial));
+      return replayValidationResult({
+        status: "environment_failure",
+        flakinessRuns,
+        baseTrials,
+        referenceTrials,
+        commands,
+        checks,
+      });
+    }
   }
 
-  return {
-    ok: checks.every((check) => check.severity !== CheckSeverity.Error) && commands.length === 2,
+  checks.push(...createBaseValidationChecks(baseTrials));
+
+  for (let trial = 1; trial <= flakinessRuns; trial += 1) {
+    const referenceWorkspacePath = path.join(
+      options.workspaceRootPath,
+      "reference",
+      trialDirectoryName(trial),
+    );
+    await prepareDoctorWorkspace(options.preparedBaselinePath, referenceWorkspacePath);
+    const referencePatchApplyResult = await applyReferencePatch(
+      referenceWorkspacePath,
+      referencePatch,
+    );
+    if (!referencePatchApplyResult.ok) {
+      checks.push({
+        code: DoctorCheckCode.ReplayReferencePatchApplyFailed,
+        severity: CheckSeverity.Error,
+        message: referencePatchApplyResult.message,
+      });
+      return replayValidationResult({
+        status: "invalid_reference_solution",
+        flakinessRuns,
+        baseTrials,
+        referenceTrials,
+        commands,
+        checks,
+      });
+    }
+    const referenceHiddenResult = await applyReplayHiddenPayload(
+      context,
+      benchmark,
+      referenceWorkspacePath,
+    );
+    checks.push(...referenceHiddenResult.checks);
+    if (!referenceHiddenResult.ok) {
+      return replayValidationResult({
+        status: "hidden_payload_apply_failed",
+        flakinessRuns,
+        baseTrials,
+        referenceTrials,
+        commands,
+        checks,
+      });
+    }
+    const referenceCommand = await runShellCommand({
+      command: benchmark.evaluation.scoring_command,
+      cwd: referenceWorkspacePath,
+      maxOutputBytes: options.commandOutputMaxBytes,
+    });
+    commands.push({ ...referenceCommand, phase: "replay_reference_validation", trial });
+    referenceTrials.push({
+      trial,
+      exit_code: referenceCommand.exit_code,
+      duration_ms: referenceCommand.duration_ms,
+      passed_expectation: referenceCommand.exit_code === 0,
+    });
+    if (referenceCommand.exit_code === null) {
+      checks.push(createReplayEnvironmentFailureCheck("reference", trial));
+      return replayValidationResult({
+        status: "environment_failure",
+        flakinessRuns,
+        baseTrials,
+        referenceTrials,
+        commands,
+        checks,
+      });
+    }
+  }
+
+  checks.push(...createReferenceValidationChecks(referenceTrials));
+
+  const status = classifyReplayValidationStatus(baseTrials, referenceTrials);
+  return replayValidationResult({
+    status,
+    flakinessRuns,
+    baseTrials,
+    referenceTrials,
     commands,
     checks,
+  });
+}
+
+function replayValidationResult(options: {
+  readonly status: BenchmarkValidityResult["status"];
+  readonly flakinessRuns: number;
+  readonly baseTrials: readonly BenchmarkValidityTrialResult[];
+  readonly referenceTrials: readonly BenchmarkValidityTrialResult[];
+  readonly commands: readonly DoctorCommandResult[];
+  readonly checks: readonly DoctorCheck[];
+}): {
+  readonly ok: boolean;
+  readonly commands: readonly DoctorCommandResult[];
+  readonly checks: readonly DoctorCheck[];
+  readonly benchmark_validity: BenchmarkValidityResult;
+} {
+  return {
+    ok: options.status === "valid",
+    commands: options.commands,
+    checks: options.checks,
+    benchmark_validity: createBenchmarkValidityResult(options),
   };
+}
+
+function createBenchmarkValidityResult(options: {
+  readonly status: BenchmarkValidityResult["status"];
+  readonly flakinessRuns: number;
+  readonly baseTrials: readonly BenchmarkValidityTrialResult[];
+  readonly referenceTrials: readonly BenchmarkValidityTrialResult[];
+}): BenchmarkValidityResult {
+  const baseHiddenResult = classifyBaseHiddenResult(options.baseTrials);
+  const referenceHiddenResult = classifyReferenceHiddenResult(options.referenceTrials);
+  return {
+    status: options.status,
+    flakiness_runs: options.flakinessRuns,
+    flaky: baseHiddenResult === "flaky" || referenceHiddenResult === "flaky",
+    base_hidden_result: baseHiddenResult,
+    reference_hidden_result: referenceHiddenResult,
+    base_trials: options.baseTrials,
+    reference_trials: options.referenceTrials,
+  };
+}
+
+function classifyReplayValidationStatus(
+  baseTrials: readonly BenchmarkValidityTrialResult[],
+  referenceTrials: readonly BenchmarkValidityTrialResult[],
+): BenchmarkValidityResult["status"] {
+  const baseHiddenResult = classifyBaseHiddenResult(baseTrials);
+  const referenceHiddenResult = classifyReferenceHiddenResult(referenceTrials);
+  if (
+    baseHiddenResult === "environment_failure" ||
+    referenceHiddenResult === "environment_failure"
+  ) {
+    return "environment_failure";
+  }
+  if (baseHiddenResult === "flaky" || referenceHiddenResult === "flaky") {
+    return "flaky_verifier";
+  }
+  if (baseHiddenResult === "unexpectedly_passed") {
+    return "invalid_base";
+  }
+  if (referenceHiddenResult === "failed" || referenceHiddenResult === "not_run") {
+    return "invalid_reference_solution";
+  }
+  return baseHiddenResult === "failed_as_expected" && referenceHiddenResult === "passed"
+    ? "valid"
+    : "environment_failure";
+}
+
+function classifyBaseHiddenResult(
+  trials: readonly BenchmarkValidityTrialResult[],
+): BenchmarkValidityBaseHiddenResult {
+  if (trials.length === 0) {
+    return "not_run";
+  }
+  if (trials.some((trial) => trial.exit_code === null)) {
+    return "environment_failure";
+  }
+  if (trials.every((trial) => trial.passed_expectation)) {
+    return "failed_as_expected";
+  }
+  if (trials.every((trial) => !trial.passed_expectation)) {
+    return "unexpectedly_passed";
+  }
+  return "flaky";
+}
+
+function classifyReferenceHiddenResult(
+  trials: readonly BenchmarkValidityTrialResult[],
+): BenchmarkValidityReferenceHiddenResult {
+  if (trials.length === 0) {
+    return "not_run";
+  }
+  if (trials.some((trial) => trial.exit_code === null)) {
+    return "environment_failure";
+  }
+  if (trials.every((trial) => trial.passed_expectation)) {
+    return "passed";
+  }
+  if (trials.every((trial) => !trial.passed_expectation)) {
+    return "failed";
+  }
+  return "flaky";
+}
+
+function createBaseValidationChecks(
+  trials: readonly BenchmarkValidityTrialResult[],
+): DoctorCheck[] {
+  const result = classifyBaseHiddenResult(trials);
+  if (result === "failed_as_expected") {
+    return [
+      {
+        code: DoctorCheckCode.ReplayBaseValidationFailedAsExpected,
+        severity: CheckSeverity.Pass,
+        message: `Replay benchmark hidden verifier failed on the base commit as expected across ${formatRunCount(trials.length)}.`,
+      },
+    ];
+  }
+  if (result === "unexpectedly_passed") {
+    return [
+      {
+        code: DoctorCheckCode.ReplayBaseValidationUnexpectedlyPassed,
+        severity: CheckSeverity.Error,
+        message:
+          "Replay benchmark hidden verifier unexpectedly passed on the base commit. The verifier must fail before the reference solution is applied.",
+      },
+    ];
+  }
+  if (result === "flaky") {
+    return [
+      {
+        code: DoctorCheckCode.ReplayVerifierFlaky,
+        severity: CheckSeverity.Error,
+        message:
+          "Replay benchmark hidden verifier produced mixed base outcomes across repeated validation runs.",
+      },
+    ];
+  }
+  return [];
+}
+
+function createReferenceValidationChecks(
+  trials: readonly BenchmarkValidityTrialResult[],
+): DoctorCheck[] {
+  const result = classifyReferenceHiddenResult(trials);
+  if (result === "passed") {
+    return [
+      {
+        code: DoctorCheckCode.ReplayReferenceValidationPassed,
+        severity: CheckSeverity.Pass,
+        message: `Replay benchmark hidden verifier passed with the reference solution across ${formatRunCount(trials.length)}.`,
+      },
+    ];
+  }
+  if (result === "failed") {
+    const lastExitCode = trials.at(-1)?.exit_code;
+    return [
+      {
+        code: DoctorCheckCode.ReplayReferenceValidationFailed,
+        severity: CheckSeverity.Error,
+        message: `Replay benchmark hidden verifier failed with the reference solution. Last exit code: ${lastExitCode ?? "null"}.`,
+      },
+    ];
+  }
+  if (result === "flaky") {
+    return [
+      {
+        code: DoctorCheckCode.ReplayVerifierFlaky,
+        severity: CheckSeverity.Error,
+        message:
+          "Replay benchmark hidden verifier produced mixed reference-solution outcomes across repeated validation runs.",
+      },
+    ];
+  }
+  return [];
+}
+
+function createReplayEnvironmentFailureCheck(
+  phase: "base" | "reference",
+  trial: number,
+): DoctorCheck {
+  return {
+    code: DoctorCheckCode.ReplayValidationEnvironmentFailed,
+    severity: CheckSeverity.Error,
+    message: `Replay ${phase} validation command could not be executed for trial ${trial}.`,
+  };
+}
+
+function trialDirectoryName(trial: number): string {
+  return `trial-${String(trial).padStart(3, "0")}`;
+}
+
+function formatRunCount(count: number): string {
+  return `${count} ${count === 1 ? "run" : "runs"}`;
 }
 
 async function prepareDoctorWorkspace(
@@ -737,9 +1003,20 @@ async function applyReplayHiddenPayload(
     evaluation: benchmark.evaluation,
   });
   if (hiddenPayloadResult.ok) {
+    const resetChecks = hiddenPayloadResult.checks
+      .filter((check) => check.code === EvaluationCheckCode.HiddenEvaluationPatchResetTouchedPaths)
+      .map(
+        (check): DoctorCheck => ({
+          code: DoctorCheckCode.ReplayHiddenVerifierTouchedPathsReset,
+          severity: CheckSeverity.Pass,
+          message: check.message,
+          ...(check.paths ? { paths: check.paths } : {}),
+        }),
+      );
     return {
       ok: true,
       checks: [
+        ...resetChecks,
         {
           code: DoctorCheckCode.ReplayHiddenPayloadApplied,
           severity: CheckSeverity.Pass,
