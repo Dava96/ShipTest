@@ -144,7 +144,103 @@ describe("runDoctor", () => {
           }),
         ]),
       );
+      expect(result.benchmark_results[0]?.benchmark_validity).toMatchObject({
+        status: "valid",
+        flakiness_runs: 1,
+        flaky: false,
+        base_hidden_result: "failed_as_expected",
+        reference_hidden_result: "passed",
+        base_trials: [expect.objectContaining({ trial: 1, passed_expectation: true })],
+        reference_trials: [expect.objectContaining({ trial: 1, passed_expectation: true })],
+      });
     }
+  });
+
+  it("marks replay verifier validation as flaky when repeated outcomes differ", async () => {
+    const repoPath = await createRepo();
+    await writeFile(path.join(repoPath, "src", "value.txt"), "bug\n", "utf8");
+    await git(["add", "-A"], repoPath);
+    await git(["commit", "-m", "buggy base"], repoPath);
+    const baseCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    await writeFile(path.join(repoPath, "src", "value.txt"), "fixed\n", "utf8");
+    await git(["add", "-A"], repoPath);
+    await git(["commit", "-m", "reference fix"], repoPath);
+    const referenceCommit = (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim();
+    const root = await mkdtemp(path.join(os.tmpdir(), "shiptest-doctor-replay-flaky-"));
+    const flakeCounterPath = path.join(root, "flake-count.txt");
+    const fixture = await createShiptestConfigFixture({
+      root,
+      configSubdir: "config",
+      projectRepo: repoPath,
+      environment: { validate: ['node -e "process.exit(0)"'] },
+      benchmarks: [
+        {
+          id: "replay-flaky",
+          type: "replay_change",
+          base_commit: baseCommit,
+          reference_solution: { commit: referenceCommit },
+          replay_validation: { flakiness_runs: 2 },
+          task: "tasks/replay-flaky.md",
+          evaluation: {
+            command: "node tests/hidden/check.cjs",
+            hidden_files: [
+              {
+                shiptest_path: "hidden/check.cjs",
+                repository_path: "tests/hidden/check.cjs",
+                write_mode: "create_new",
+              },
+            ],
+          },
+        },
+      ],
+      files: {
+        "tasks/replay-flaky.md": "Fix the value.\n",
+        "hidden/check.cjs": `const fs = require("node:fs");\nconst counter = ${JSON.stringify(flakeCounterPath)};\nconst n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;\nfs.writeFileSync(counter, String(n + 1));\nconst value = fs.readFileSync("src/value.txt", "utf8").trim();\nif (value === "bug") process.exit(n === 0 ? 1 : 0);\nprocess.exit(value === "fixed" ? 0 : 1);\n`,
+      },
+    });
+    const context = await loadShiptestConfigContext(fixture.configPath);
+
+    const result = await runDoctor(context, {
+      outputRootPath: path.join(root, ".shiptest", "doctor"),
+      cacheRootPath: path.join(root, ".shiptest", "cache"),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.benchmark_results[0]?.commands.map((command) => command.phase)).toEqual([
+      "required_validation",
+      "replay_base_validation",
+      "replay_base_validation",
+      "replay_reference_validation",
+      "replay_reference_validation",
+    ]);
+    expect(result.benchmark_results[0]?.commands.map((command) => command.trial)).toEqual([
+      undefined,
+      1,
+      2,
+      1,
+      2,
+    ]);
+    expect(result.benchmark_results[0]?.benchmark_validity).toMatchObject({
+      status: "flaky_verifier",
+      flakiness_runs: 2,
+      flaky: true,
+      base_hidden_result: "flaky",
+      reference_hidden_result: "passed",
+      base_trials: [
+        expect.objectContaining({ trial: 1, exit_code: 1, passed_expectation: true }),
+        expect.objectContaining({ trial: 2, exit_code: 0, passed_expectation: false }),
+      ],
+      reference_trials: [
+        expect.objectContaining({ trial: 1, exit_code: 0, passed_expectation: true }),
+        expect.objectContaining({ trial: 2, exit_code: 0, passed_expectation: true }),
+      ],
+    });
+    expect(result.benchmark_results[0]?.checks).toContainEqual(
+      expect.objectContaining({
+        code: DoctorCheckCode.ReplayVerifierFlaky,
+        severity: "error",
+      }),
+    );
   });
 
   it("uses a valid prepared-baseline cache and skips validation unless noCache is set", async () => {
