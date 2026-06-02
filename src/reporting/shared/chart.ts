@@ -74,7 +74,7 @@ function renderBar(bar: BarDatum, max: number, min: number): string {
       : bar.higherIsBetter
         ? scale(bar.value, scaleMin, max, 18, 100)
         : scale(max - bar.value + scaleMin, scaleMin, max, 18, 100);
-  return `<a class="bar-wrap" href="${escapeAttribute(bar.href ?? "#artifacts")}" data-model-bar="${escapeAttribute(slugify(bar.label))}" data-detail="${escapeAttribute(bar.detail)}" style="--bar-height:${height}%">
+  return `<a class="bar-wrap" href="${escapeAttribute(bar.href ?? "#artifacts")}" data-model-bar="${escapeAttribute(slugify(bar.label))}" data-detail="${escapeAttribute(bar.detail)}" title="${escapeAttribute(bar.detail)}" style="--bar-height:${height}%">
     <span class="bar" style="background:${escapeAttribute(bar.color)}"><span class="bar-chip">${escapeHtml(shortValue(bar.display))}</span></span>
     <span class="bar-label">${escapeHtml(bar.label)}</span>
   </a>`;

@@ -57,6 +57,21 @@ export interface ShiptestRunOptions {
   readonly onProgress?: (message: string) => void;
 }
 
+export type HumanReviewStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "needs_changes"
+  | "acceptable"
+  | "unacceptable";
+
+export interface AttemptArtifactTextPreview {
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly size_bytes: number;
+  readonly max_bytes: number;
+}
+
 export interface AttemptReport {
   readonly schema_version: 1;
   readonly run_id: string;
@@ -79,7 +94,16 @@ export interface AttemptReport {
   };
   readonly evaluation?: CleanRoomEvaluationResult;
   readonly human_review: {
-    readonly status: "pending" | "acceptable" | "needs_changes" | "unacceptable";
+    readonly status: HumanReviewStatus;
+    readonly reviewer?: string | null;
+    readonly reviewed_at?: string | null;
+    readonly verdict?: string | null;
+    readonly reason?: string | null;
+    readonly notes?: string | null;
+  };
+  readonly artifact_previews?: {
+    readonly candidate_patch?: AttemptArtifactTextPreview;
+    readonly task?: AttemptArtifactTextPreview;
   };
   readonly timings_ms?: {
     readonly total_ms: number;

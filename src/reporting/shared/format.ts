@@ -8,6 +8,7 @@ export function formatRunMode(results: RunResults): string {
 }
 
 export function formatStatus(value: string): string {
+  if (value === "needs_review") return "evaluator review";
   return value.replaceAll("_", " ");
 }
 

@@ -56,8 +56,8 @@ ${reportStyles}
   ${renderTopbar({
     ariaLabel: "Model report navigation",
     nav: [
-      { label: "← Suite report", href: "report.html", active: true },
-      { label: "Capabilities", href: "#capabilities" },
+      { label: "← Suite report", href: "report.html" },
+      { label: "Capabilities", href: "#capabilities", active: true },
       { label: "Benchmarks", href: "#benchmarks" },
       { label: "Artifacts", href: "#artifacts" },
     ],

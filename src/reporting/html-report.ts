@@ -1,7 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AttemptReport, RunResults } from "../run/types.js";
+import type { AttemptArtifactTextPreview, AttemptReport, RunResults } from "../run/types.js";
 import {
   benchmarkDetailReportPath,
   modelDetailReportPath,
@@ -13,6 +13,9 @@ import {
   renderModelsReport,
   renderReport,
 } from "./html-report-renderer.js";
+
+const CandidatePatchPreviewMaxBytes = 300_000;
+const TaskPreviewMaxBytes = 200_000;
 
 export async function writeHtmlReport(options: {
   readonly runRootPath: string;
@@ -62,6 +65,16 @@ async function sanitizeAttemptArtifactLink(
   const candidatePatch = await availableArtifactPath(
     runRootPath,
     attempt.artifacts.candidate_patch,
+  );
+  const candidatePatchPreview = await readTextArtifactPreview(
+    runRootPath,
+    candidatePatch,
+    CandidatePatchPreviewMaxBytes,
+  );
+  const taskPreview = await readTextArtifactPreview(
+    runRootPath,
+    attempt.artifacts.agent_task,
+    TaskPreviewMaxBytes,
   );
   const attemptJson = await availableArtifactPath(runRootPath, attempt.artifacts.attempt_json);
   const toolCallsJsonl = await availableArtifactPath(
@@ -113,10 +126,16 @@ async function sanitizeAttemptArtifactLink(
           },
         };
 
+  const artifactPreviews = {
+    ...(candidatePatchPreview === undefined ? {} : { candidate_patch: candidatePatchPreview }),
+    ...(taskPreview === undefined ? {} : { task: taskPreview }),
+  };
+
   return {
     ...attempt,
     artifacts,
     ...(toolUsage === undefined ? {} : { tool_usage: toolUsage }),
+    ...(Object.keys(artifactPreviews).length === 0 ? {} : { artifact_previews: artifactPreviews }),
     ...(attempt.evaluation === undefined || evaluationCommands === undefined
       ? {}
       : {
@@ -128,21 +147,51 @@ async function sanitizeAttemptArtifactLink(
   };
 }
 
+async function readTextArtifactPreview(
+  runRootPath: string,
+  artifactPath: string | undefined,
+  maxBytes: number,
+): Promise<AttemptArtifactTextPreview | undefined> {
+  if (!artifactPath) return undefined;
+  const resolvedPath = resolveArtifactFilesystemPath(runRootPath, artifactPath);
+  try {
+    const artifactStat = await stat(resolvedPath);
+    if (!artifactStat.isFile() || artifactStat.size <= 0) {
+      return undefined;
+    }
+    const contents = await readFile(resolvedPath);
+    const truncated = contents.byteLength > maxBytes;
+    const text = contents.subarray(0, maxBytes).toString("utf8");
+    return {
+      text,
+      truncated,
+      size_bytes: artifactStat.size,
+      max_bytes: maxBytes,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 async function availableArtifactPath(
   runRootPath: string,
   artifactPath: string | undefined,
 ): Promise<string | undefined> {
   if (!artifactPath) return undefined;
-  const filesystemArtifactPath = artifactPath.split(/[?#]/, 1)[0] ?? artifactPath;
-  const resolvedPath = path.isAbsolute(filesystemArtifactPath)
-    ? filesystemArtifactPath
-    : path.join(runRootPath, filesystemArtifactPath);
+  const resolvedPath = resolveArtifactFilesystemPath(runRootPath, artifactPath);
   try {
     const artifactStat = await stat(resolvedPath);
     return artifactStat.isFile() && artifactStat.size > 0 ? artifactPath : undefined;
   } catch {
     return undefined;
   }
+}
+
+function resolveArtifactFilesystemPath(runRootPath: string, artifactPath: string): string {
+  const filesystemArtifactPath = artifactPath.split(/[?#]/, 1)[0] ?? artifactPath;
+  return path.isAbsolute(filesystemArtifactPath)
+    ? filesystemArtifactPath
+    : path.join(runRootPath, filesystemArtifactPath);
 }
 
 async function writeModelReports(options: {
