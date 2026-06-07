@@ -2,10 +2,13 @@ import { cp, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runPiJsonAgentAttempt } from "../agent/pi-json-harness.js";
+import { createFailureModeInsights } from "../analysis/failure-taxonomy.js";
+import { createSelfVerificationSummary } from "../analysis/self-verification.js";
 import { getBenchmarkPolicy } from "../benchmark/policy.js";
 import { loadShiptestConfigContext } from "../config/load-config.js";
 import { resolveConfigRelativePath } from "../config/paths.js";
 import { runDoctor } from "../doctor/run-doctor.js";
+import type { DoctorBenchmarkResult } from "../doctor/types.js";
 import { runCleanRoomEvaluation } from "../evaluation/clean-room-evaluator.js";
 import { writeHtmlReport } from "../reporting/html-report.js";
 import { matchesRepositoryPath } from "../snapshot/sanitizer.js";
@@ -81,6 +84,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
         readonly workspaceKey: string;
       }
     >();
+    const doctorResultsByBenchmark = new Map<string, DoctorBenchmarkResult>();
     const benchmarkIds = [...new Set(plan.items.map((item) => item.benchmark.id))];
     for (const benchmarkId of benchmarkIds) {
       options.onProgress?.(`[${benchmarkId}] Preparing baseline.`);
@@ -102,6 +106,9 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       const benchmarkDoctorResult = doctorResult.benchmark_results.find(
         (result) => result.benchmark_id === benchmarkId,
       );
+      if (benchmarkDoctorResult) {
+        doctorResultsByBenchmark.set(benchmarkId, benchmarkDoctorResult);
+      }
       if (!benchmarkDoctorResult?.ok) {
         failedBenchmarkIds.push(benchmarkId);
         continue;
@@ -139,6 +146,7 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
       items: attemptJobs,
       concurrency,
       worker: async (job) => {
+        const doctorBenchmarkResult = doctorResultsByBenchmark.get(job.planItem.benchmark.id);
         const attemptReport = await runAttemptJob({
           job,
           runId: layout.runId,
@@ -146,8 +154,10 @@ export async function runShiptest(options: ShiptestRunOptions): Promise<RunResul
           workspaceRootPath: layout.workspaceRootPath,
           configDir: context.configDir,
           repositoryEnvironment: context.config.repository_environment,
+          verification: context.config.verification,
           toolUsage: context.config.tool_usage,
           preparedBaseline: preparedBaselines.get(job.planItem.benchmark.id),
+          ...(doctorBenchmarkResult ? { doctorBenchmarkResult } : {}),
           piExecutable: options.piExecutable ?? "pi",
           piExecutableArgs: options.piExecutableArgs ?? [],
           eventsPath: layout.eventsPath,
@@ -235,6 +245,7 @@ async function runAttemptJob(options: {
   readonly repositoryEnvironment: Parameters<
     typeof runCleanRoomEvaluation
   >[0]["repositoryEnvironment"];
+  readonly verification: Parameters<typeof createSelfVerificationSummary>[0]["verification"];
   readonly toolUsage?: Parameters<typeof runPiJsonAgentAttempt>[0]["toolUsage"];
   readonly preparedBaseline:
     | {
@@ -243,6 +254,7 @@ async function runAttemptJob(options: {
         readonly workspaceKey: string;
       }
     | undefined;
+  readonly doctorBenchmarkResult?: DoctorBenchmarkResult;
   readonly piExecutable: string;
   readonly piExecutableArgs: readonly string[];
   readonly eventsPath: string;
@@ -339,9 +351,13 @@ async function runAttemptJob(options: {
     attempt: job.attempt,
     benchmark: item.benchmark,
     model: item.model,
+    verification: options.verification,
     agentResult,
     qualitySignals,
     timingsMs: createAttemptTimings(attemptStartedAtMs, agentResult, evaluationResult),
+    ...(options.doctorBenchmarkResult
+      ? { doctorBenchmarkResult: options.doctorBenchmarkResult }
+      : {}),
     ...(evaluationResult ? { evaluationResult } : {}),
   });
   await mkdir(path.dirname(attemptLayout.attemptJsonPath), { recursive: true });
@@ -368,10 +384,12 @@ function createAttemptReport(options: {
   readonly attempt: number;
   readonly benchmark: Parameters<typeof runPiJsonAgentAttempt>[0]["benchmark"];
   readonly model: Parameters<typeof runPiJsonAgentAttempt>[0]["model"];
+  readonly verification: Parameters<typeof createSelfVerificationSummary>[0]["verification"];
   readonly agentResult: Awaited<ReturnType<typeof runPiJsonAgentAttempt>>;
   readonly qualitySignals: readonly AttemptQualitySignal[];
   readonly evaluationResult?: Awaited<ReturnType<typeof runCleanRoomEvaluation>> | undefined;
   readonly timingsMs: NonNullable<AttemptReport["timings_ms"]>;
+  readonly doctorBenchmarkResult?: DoctorBenchmarkResult;
 }): AttemptReport {
   const qualitySignals = options.qualitySignals;
   const status = classifyAttemptStatus(
@@ -393,6 +411,23 @@ function createAttemptReport(options: {
   for (const [key, artifactPath] of Object.entries(options.evaluationResult?.artifacts ?? {})) {
     artifacts[`evaluation_${key}`] = toRunRelativePath(options.runRootPath, artifactPath);
   }
+
+  const selfVerification = createSelfVerificationSummary({
+    verification: options.verification,
+    toolCalls: options.agentResult.tool_usage?.artifacts.tool_calls_jsonl
+      ? options.agentResult.tool_usage.tool_calls
+      : undefined,
+    finalResponse: options.agentResult.telemetry.final_response,
+    changedFiles: options.agentResult.submission?.changed_files ?? [],
+    baselineCommands: options.doctorBenchmarkResult?.commands ?? [],
+  });
+  const failureModes = createFailureModeInsights({
+    agentStatus: options.agentResult.status,
+    agentSignals: options.agentResult.signals,
+    qualitySignals,
+    evaluation: options.evaluationResult,
+    selfVerification,
+  });
 
   return {
     schema_version: 1,
@@ -417,6 +452,8 @@ function createAttemptReport(options: {
       ? { tool_usage: relativizeToolUsage(options.agentResult.tool_usage, options.runRootPath) }
       : {}),
     ...(qualitySignals.length > 0 ? { quality_signals: qualitySignals } : {}),
+    self_verification: selfVerification,
+    ...(failureModes.length > 0 ? { failure_modes: failureModes } : {}),
     ...(options.agentResult.submission
       ? {
           submission: {

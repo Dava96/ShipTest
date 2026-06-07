@@ -189,6 +189,52 @@ describe("config loading and validation", () => {
     });
   });
 
+  it("normalizes dedicated verification check matchers", () => {
+    const config = ShiptestConfigSchema.parse({
+      version: 1,
+      project: { name: "fixture" },
+      environment: { validate: { required: ["npm test"], advisory: ["npm run lint"] } },
+      verification: {
+        checks: [
+          {
+            id: "tests",
+            kind: "tests",
+            label: "Tests",
+            match: { tool: "bash", command_contains: "npm test" },
+            baseline_command: "npm test",
+          },
+          {
+            id: "lint",
+            kind: "lint",
+            match: { tool: "bash", command_contains: "npm run lint" },
+          },
+        ],
+      },
+      models: [{ id: "fake", provider: "openai-codex", model: "fake" }],
+      defaults: {
+        limits: {},
+        agent_view: {},
+        evaluation: { command: "npm test" },
+      },
+      benchmarks: [{ id: "bench", type: "implementation", task: "tasks/task.md" }],
+    });
+
+    expect(config.verification.checks).toEqual([
+      {
+        id: "tests",
+        kind: "tests",
+        label: "Tests",
+        match: { tool: "bash", command_contains: "npm test" },
+        baseline_command: "npm test",
+      },
+      {
+        id: "lint",
+        kind: "lint",
+        match: { tool: "bash", command_contains: "npm run lint" },
+      },
+    ]);
+  });
+
   it("normalizes workspace safety options", () => {
     const config = ShiptestConfigSchema.parse({
       version: 1,

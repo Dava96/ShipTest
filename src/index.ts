@@ -16,6 +16,10 @@ export type {
   AgentTelemetry,
   AgentTokenUsage,
 } from "./agent/types.js";
+export type {
+  FailureModeInsight,
+  SelfVerificationSummary,
+} from "./analysis/types.js";
 export type { PreparedBaselineCheck } from "./baseline/check-codes.js";
 export { PreparedBaselineCheckCode } from "./baseline/check-codes.js";
 export type { CleanGitRepoOptions, CleanGitRepoResult } from "./baseline/clean-git-repo.js";
@@ -56,6 +60,7 @@ export type {
   RepositoryEnvironmentSource as RepositoryEnvironmentSourceValue,
   SnapshotStrategy as SnapshotStrategyValue,
   SubmoduleHandling as SubmoduleHandlingValue,
+  VerificationCheckKind as VerificationCheckKindValue,
 } from "./config/schema-values.js";
 export {
   BenchmarkType,
@@ -71,6 +76,7 @@ export {
   SchemaLimits,
   SnapshotStrategy,
   SubmoduleHandling,
+  VerificationCheckKind,
 } from "./config/schema-values.js";
 export type { DoctorCheck } from "./doctor/check-codes.js";
 export { DoctorCheckCode } from "./doctor/check-codes.js";

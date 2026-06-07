@@ -29,6 +29,7 @@ export interface ShiptestConfigInputOptions {
   readonly projectRepo?: ProjectRepoFixtureValue;
   readonly environment?: ShiptestConfigInput["environment"];
   readonly runner?: ShiptestConfigInput["runner"];
+  readonly verification?: ShiptestConfigInput["verification"];
   readonly models?: readonly ModelInput[];
   readonly defaultModels?: readonly string[] | "omit";
   readonly benchmarks?: readonly BenchmarkInput[];
@@ -88,6 +89,7 @@ export function createShiptestConfigInput(
       validate: ["npm test"],
     },
     ...(options.runner === undefined ? {} : { runner: options.runner }),
+    ...(options.verification === undefined ? {} : { verification: options.verification }),
     models: [...models],
     defaults: {
       ...(defaultModels === undefined ? {} : { models: [...defaultModels] }),

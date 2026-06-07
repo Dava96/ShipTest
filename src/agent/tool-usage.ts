@@ -51,11 +51,20 @@ export interface ToolUsageCategorySummary {
   readonly highlights: readonly ToolUsageHighlightSummary[];
 }
 
+export interface ToolCallEvidence {
+  readonly id: string;
+  readonly tool: string;
+  readonly command?: string;
+  readonly input_summary?: string;
+  readonly status: ToolCallStatus;
+}
+
 export interface ToolUsageSummary {
   readonly summary: {
     readonly tool_calls: number;
     readonly failed_tool_calls: number;
   };
+  readonly tool_calls: readonly ToolCallEvidence[];
   readonly categories: readonly ToolUsageCategorySummary[];
   readonly artifacts: {
     readonly tool_calls_jsonl?: string;
@@ -280,6 +289,13 @@ export class ToolUsageRecorder {
     });
     return {
       summary: { tool_calls: this.summaries.length, failed_tool_calls: failedToolCalls.length },
+      tool_calls: this.summaries.map((summary) => ({
+        id: summary.id,
+        tool: summary.tool,
+        ...(summary.command ? { command: summary.command } : {}),
+        ...(summary.input_summary ? { input_summary: summary.input_summary } : {}),
+        status: summary.status,
+      })),
       categories,
       artifacts: { ...(this.artifactPath ? { tool_calls_jsonl: this.artifactPath } : {}) },
     };

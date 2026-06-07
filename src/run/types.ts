@@ -1,4 +1,5 @@
 import type { AgentRunResult } from "../agent/types.js";
+import type { FailureModeInsight, SelfVerificationSummary } from "../analysis/types.js";
 import type { ResolvedShiptestConfig } from "../config/schema.js";
 import type { CleanRoomEvaluationResult } from "../evaluation/types.js";
 
@@ -88,6 +89,8 @@ export interface AttemptReport {
   readonly agent: Pick<AgentRunResult, "ok" | "status" | "signals" | "telemetry">;
   readonly tool_usage?: AgentRunResult["tool_usage"];
   readonly quality_signals?: readonly AttemptQualitySignal[];
+  readonly self_verification?: SelfVerificationSummary;
+  readonly failure_modes?: readonly FailureModeInsight[];
   readonly submission?: {
     readonly changed_files: readonly string[];
     readonly is_empty: boolean;
