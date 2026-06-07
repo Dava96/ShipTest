@@ -16,6 +16,17 @@ export const BenchmarkType = {
 } as const;
 export type BenchmarkType = (typeof BenchmarkType)[keyof typeof BenchmarkType];
 
+export const VerificationCheckKind = {
+  Build: "build",
+  Custom: "custom",
+  Lint: "lint",
+  Repro: "repro",
+  Tests: "tests",
+  Typecheck: "typecheck",
+} as const;
+export type VerificationCheckKind =
+  (typeof VerificationCheckKind)[keyof typeof VerificationCheckKind];
+
 export const CommandsRunIn = {
   RepositoryEnvironment: "repository_environment",
   ShiptestEnvironment: "shiptest_environment",

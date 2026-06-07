@@ -158,6 +158,103 @@ function renderRunInsightCard(card: RunInsightCard): string {
   return `<div class="metric-card insight-card ${card.tone}">${content}</div>`;
 }
 
+export function renderSelfVerificationOverview(attempts: readonly AttemptReport[]): string {
+  const total = attempts.length;
+  const withVerification = attempts.filter((attempt) => attempt.self_verification !== undefined);
+  const ranTests = withVerification.filter(
+    (attempt) => attempt.self_verification?.ran_tests,
+  ).length;
+  const ranStatic = withVerification.filter(
+    (attempt) =>
+      attempt.self_verification?.ran_typecheck ||
+      attempt.self_verification?.ran_build ||
+      attempt.self_verification?.ran_lint,
+  ).length;
+  const baselineValidated = withVerification.filter((attempt) =>
+    attempt.self_verification?.checks.some((check) =>
+      ["baseline_validated_exact", "baseline_validated_family"].includes(check.evidence_tier),
+    ),
+  ).length;
+  const unsupportedClaims = withVerification.filter((attempt) =>
+    ["unsupported", "contradicted"].includes(
+      attempt.self_verification?.final_response_claim.support ?? "no_claim",
+    ),
+  ).length;
+  const testFilesTouched = withVerification.filter(
+    (attempt) => attempt.self_verification?.modified_tests,
+  ).length;
+  const topFailureMode = topFailureModeAggregate(attempts);
+  const cards: RunInsightCard[] = [
+    {
+      tone: "quality",
+      title: "Agent ran tests",
+      rank: total === 0 ? "no attempts" : `${ranTests}/${total}`,
+      value: percentLabel(ranTests, total),
+      label: "attempts with observed agent-side test commands",
+    },
+    {
+      tone: "speed",
+      title: "Static checks observed",
+      rank: total === 0 ? "no attempts" : `${ranStatic}/${total}`,
+      value: percentLabel(ranStatic, total),
+      label: "attempts with typecheck, build, or lint commands observed",
+    },
+    {
+      tone: "pending",
+      title: "Baseline-backed evidence",
+      rank: total === 0 ? "no attempts" : `${baselineValidated}/${total}`,
+      value: percentLabel(baselineValidated, total),
+      label: "attempts with observed checks tied to a passing doctor command",
+    },
+    {
+      tone: unsupportedClaims > 0 ? "risk" : "quality",
+      title: "Unsupported verification claims",
+      rank: "claim hygiene",
+      value: String(unsupportedClaims),
+      label: "attempts where final claims lacked matching observed tool evidence",
+    },
+    {
+      tone: "tokens",
+      title: "Likely test files touched",
+      rank: "neutral flag",
+      value: String(testFilesTouched),
+      label: "attempts touching paths that look like tests; review evidence only",
+    },
+    {
+      tone: topFailureMode ? "risk" : "quality",
+      title: "Top reviewer insight",
+      rank: topFailureMode
+        ? `${topFailureMode.count} attempt${topFailureMode.count === 1 ? "" : "s"}`
+        : "clear",
+      value: topFailureMode?.label ?? "—",
+      label: topFailureMode
+        ? "most common deterministic insight flag"
+        : "no reviewer insight flags emitted",
+    },
+  ];
+  return `<section class="insight-grid">${cards.map(renderRunInsightCard).join("")}</section>`;
+}
+
+function topFailureModeAggregate(
+  attempts: readonly AttemptReport[],
+): { readonly id: string; readonly label: string; readonly count: number } | undefined {
+  const counts = new Map<string, { label: string; count: number }>();
+  for (const attempt of attempts) {
+    for (const mode of attempt.failure_modes ?? []) {
+      const existing = counts.get(mode.id) ?? { label: mode.label, count: 0 };
+      counts.set(mode.id, { label: existing.label, count: existing.count + 1 });
+    }
+  }
+  return [...counts.entries()]
+    .map(([id, value]) => ({ id, label: value.label, count: value.count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))[0];
+}
+
+function percentLabel(count: number, total: number): string {
+  if (total <= 0) return "—";
+  return `${Math.round((count / total) * 100)}%`;
+}
+
 function bestModelAggregate(attempts: readonly AttemptReport[]): ModelAggregate | undefined {
   return modelAggregates(attempts).sort(
     (a, b) => b.averageQuality - a.averageQuality || b.passed - a.passed,

@@ -15,6 +15,7 @@ import {
   SchemaLimits,
   SnapshotStrategy,
   SubmoduleHandling,
+  VerificationCheckKind,
 } from "./schema-values.js";
 
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -349,6 +350,30 @@ const ToolUsageHighlightSchema = z
   })
   .strict();
 
+const VerificationCheckSchema = z
+  .object({
+    id,
+    kind: z.enum([
+      VerificationCheckKind.Build,
+      VerificationCheckKind.Custom,
+      VerificationCheckKind.Lint,
+      VerificationCheckKind.Repro,
+      VerificationCheckKind.Tests,
+      VerificationCheckKind.Typecheck,
+    ]),
+    label: nonEmptyString.optional(),
+    match: ToolUsageHighlightMatchSchema,
+    baseline_command: nonEmptyString.optional(),
+  })
+  .strict();
+
+export const VerificationSchema = z
+  .object({
+    checks: z.array(VerificationCheckSchema).default([]),
+  })
+  .strict()
+  .prefault({});
+
 const ToolUsageCategorySchema = z
   .object({
     id,
@@ -485,6 +510,7 @@ const RawShiptestConfigSchema = z
     baselines: BaselinesSchema,
     artifacts: ArtifactsSchema,
     reporting: ReportingSchema,
+    verification: VerificationSchema,
     defaults: DefaultsSchema,
     models: ModelsSchema,
     benchmarks: BenchmarksSchema,
@@ -555,6 +581,7 @@ export const ShiptestConfigSchema = RawShiptestConfigSchema.transform((config) =
 }).superRefine((config, context) => {
   addDuplicateIdIssues(config.models, "models", context);
   addDuplicateIdIssues(config.benchmarks, "benchmarks", context);
+  addDuplicateIdIssues(config.verification.checks, "verification.checks", context);
 
   const modelIds = new Set(config.models.map((model) => model.id));
   for (const [modelIndex, modelId] of (config.defaults.models ?? []).entries()) {
@@ -697,7 +724,7 @@ function addHiddenPatchPolicyIssue(
 
 function addDuplicateIdIssues(
   items: readonly { readonly id: string }[],
-  path: "models" | "benchmarks",
+  path: "models" | "benchmarks" | "verification.checks",
   context: z.RefinementCtx,
 ): void {
   const seen = new Map<string, number>();
@@ -706,13 +733,28 @@ function addDuplicateIdIssues(
     if (firstIndex !== undefined) {
       context.addIssue({
         code: "custom",
-        path: [path, index, "id"],
-        message: `Duplicate ${path.slice(0, -1)} id '${item.id}' already used at ${path}[${firstIndex}]`,
+        path: duplicateIdPath(path, index),
+        message: `Duplicate ${singularLabel(path)} id '${item.id}' already used at ${path}[${firstIndex}]`,
       });
     } else {
       seen.set(item.id, index);
     }
   }
+}
+
+function duplicateIdPath(
+  pathName: "models" | "benchmarks" | "verification.checks",
+  index: number,
+): (string | number)[] {
+  return pathName === "verification.checks"
+    ? ["verification", "checks", index, "id"]
+    : [pathName, index, "id"];
+}
+
+function singularLabel(pathName: "models" | "benchmarks" | "verification.checks"): string {
+  if (pathName === "models") return "model";
+  if (pathName === "benchmarks") return "benchmark";
+  return "verification check";
 }
 
 export type ShiptestConfig = z.input<typeof ShiptestConfigSchema>;

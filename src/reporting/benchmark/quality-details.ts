@@ -132,6 +132,10 @@ function qualityDetailViewModel(attempt: AttemptReport): QualityDetailViewModel 
       topSignal,
       ...signals.map((signal) => signal.id),
       ...signals.map((signal) => signal.message),
+      ...(attempt.failure_modes ?? []).map((mode) => mode.id),
+      ...(attempt.failure_modes ?? []).map((mode) => mode.label),
+      ...(attempt.self_verification?.checks ?? []).map((check) => check.label),
+      attempt.self_verification?.final_response_claim.support ?? "",
       ...files,
     ]
       .join(" ")
@@ -153,6 +157,16 @@ function qualityDetailViewModel(attempt: AttemptReport): QualityDetailViewModel 
         id: "tools",
         title: "Tool usage",
         bodyHtml: `<ul class="quality-list"><li>Tool calls: ${toolCalls}</li><li>Failed tool calls: ${failedTools}</li><li>${escapeHtml(renderToolUsageText(attempt))}</li>${attempt.tool_usage?.artifacts.tool_calls_jsonl ? `<li>${artifactLink(attempt.tool_usage.artifacts.tool_calls_jsonl, "tool calls jsonl")}</li>` : ""}</ul>`,
+      },
+      {
+        id: "verification",
+        title: "Verification",
+        bodyHtml: renderSelfVerification(attempt),
+      },
+      {
+        id: "reviewer-insights",
+        title: "Reviewer insights",
+        bodyHtml: renderFailureModes(attempt),
       },
     ],
   };
@@ -259,6 +273,76 @@ function renderToolUsageText(attempt: AttemptReport): string {
     return "No highlighted categories configured";
   }
   return usage.categories.map((category) => `${category.label}: ${category.status}`).join("; ");
+}
+
+function renderSelfVerification(attempt: AttemptReport): string {
+  const verification = attempt.self_verification;
+  if (!verification) {
+    return `<div class="muted small">No self-verification summary is available for this attempt.</div>`;
+  }
+  const observed = verification.checks.filter((check) => check.observed);
+  const checkRows = verification.checks
+    .map(
+      (check) =>
+        `<li><strong>${escapeHtml(check.label)}</strong> · ${check.observed ? "observed" : "not observed"} · ${escapeHtml(formatObservedStatus(check.observed_status))} · ${escapeHtml(formatEvidenceTier(check.evidence_tier))}${check.baseline_status === "failed" ? " · baseline failed" : check.baseline_status === "not_run" ? " · baseline unknown" : check.baseline_status === "passed" ? " · baseline validated" : ""}${
+          check.evidence.length > 0
+            ? `<ul>${check.evidence
+                .slice(0, 3)
+                .map(
+                  (item) =>
+                    `<li><code>${escapeHtml(item.command ?? item.tool)}</code> · ${escapeHtml(item.status)} · ${escapeHtml(item.source)}</li>`,
+                )
+                .join(
+                  "",
+                )}${check.evidence.length > 3 ? `<li>+${check.evidence.length - 3} more observed command${check.evidence.length - 3 === 1 ? "" : "s"}</li>` : ""}</ul>`
+            : ""
+        }</li>`,
+    )
+    .join("");
+  const claim = verification.final_response_claim;
+  return `<div class="quality-overview">
+    <div class="quality-overview-column"><h4>Observed workflow</h4><ul class="quality-list"><li>Tests: ${yesNo(verification.ran_tests)}</li><li>Typecheck: ${yesNo(verification.ran_typecheck)}</li><li>Build: ${yesNo(verification.ran_build)}</li><li>Lint/static checks: ${yesNo(verification.ran_lint)}</li><li>Repro/regression: ${yesNo(verification.ran_repro)}</li></ul></div>
+    <div class="quality-overview-column"><h4>Verification claim</h4><ul class="quality-list"><li>Claimed verification: ${yesNo(claim.claims_verification)}</li><li>Support: ${escapeHtml(formatClaimSupport(claim.support))}</li>${claim.claimed_kinds.length > 0 ? `<li>Claimed: ${escapeHtml(claim.claimed_kinds.join(", "))}</li>` : ""}</ul></div>
+    <div class="quality-overview-column"><h4>Test files touched</h4>${verification.modified_tests ? renderChangedFiles(verification.test_change_paths) : `<div class="muted small">No likely test files touched.</div>`}</div>
+    <div class="quality-overview-column"><h4>Evidence summary</h4><ul class="quality-list"><li>${observed.length}/${verification.checks.length} verification check${verification.checks.length === 1 ? "" : "s"} observed</li><li>Tool evidence: ${verification.evidence_available ? "available" : "not available"}</li></ul></div>
+    <div class="quality-overview-column"><h4>Checks</h4><ul class="quality-list">${checkRows}</ul></div>
+  </div>`;
+}
+
+function renderFailureModes(attempt: AttemptReport): string {
+  const failureModes = attempt.failure_modes ?? [];
+  if (failureModes.length === 0) {
+    return `<div class="muted small">No reviewer insight flags for this attempt.</div>`;
+  }
+  return `<ul class="quality-list">${failureModes
+    .map(
+      (mode) =>
+        `<li><strong>${escapeHtml(mode.label)}</strong> · ${escapeHtml(mode.category)} · ${escapeHtml(mode.severity)}<br><span class="muted small">${escapeHtml(mode.message)}</span>${mode.paths && mode.paths.length > 0 ? `<br><span class="muted small">Paths: ${escapeHtml(mode.paths.join(", "))}</span>` : ""}<br><span class="muted small">Evidence: ${escapeHtml(mode.evidence.join(", "))}</span></li>`,
+    )
+    .join("")}</ul>`;
+}
+
+function yesNo(value: boolean): string {
+  return value ? "yes" : "no";
+}
+
+function formatObservedStatus(status: string): string {
+  if (status === "not_observed") return "no observed command";
+  return status.replaceAll("_", " ");
+}
+
+function formatEvidenceTier(tier: string): string {
+  if (tier === "baseline_validated_exact") return "baseline-validated exact command";
+  if (tier === "baseline_validated_family") return "baseline-validated command family";
+  if (tier === "baseline_failed") return "baseline failed";
+  if (tier === "observed_unvalidated") return "observed, baseline unknown";
+  return "not observed";
+}
+
+function formatClaimSupport(support: string): string {
+  if (support === "no_claim") return "no verification claim";
+  if (support === "unknown_no_tool_logs") return "unknown; tool logs unavailable";
+  return support.replaceAll("_", " ");
 }
 
 function renderCandidateDiff(attempt: AttemptReport, baseId: string): string {

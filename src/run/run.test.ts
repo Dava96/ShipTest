@@ -247,6 +247,77 @@ describe("runShiptest", () => {
     );
   });
 
+  it("records self-verification summaries and reviewer-friendly failure modes", async () => {
+    const fixture = await createFixture({
+      selfVerification: true,
+      testFileChange: true,
+    });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly self_verification: {
+        readonly ran_typecheck: boolean;
+        readonly modified_tests: boolean;
+        readonly test_change_paths: readonly string[];
+        readonly final_response_claim: { readonly support: string };
+        readonly checks: readonly {
+          readonly id: string;
+          readonly baseline_status: string;
+          readonly evidence_tier: string;
+        }[];
+      };
+    };
+
+    expect(attempt.self_verification.ran_typecheck).toBe(true);
+    expect(attempt.self_verification.modified_tests).toBe(true);
+    expect(attempt.self_verification.test_change_paths).toEqual(["src/generated.test.ts"]);
+    expect(attempt.self_verification.final_response_claim.support).toBe("supported");
+    expect(
+      attempt.self_verification.checks.find((check) => check.id === "typecheck"),
+    ).toMatchObject({
+      baseline_status: "passed",
+      evidence_tier: "baseline_validated_exact",
+    });
+  });
+
+  it("keeps unsupported verification claims as reviewer insight warnings", async () => {
+    const fixture = await createFixture({ unsupportedVerificationClaim: true });
+
+    const result = await runShiptest({
+      configPath: fixture.configPath,
+      runRootPath: fixture.runRootPath,
+      piExecutable: process.execPath,
+      piExecutableArgs: [fixture.fakePiPath],
+    });
+
+    const attemptPath = path.join(
+      fixture.runRootPath,
+      result.benchmark_results[0]?.attempts[0] ?? "missing",
+    );
+    const attempt = JSON.parse(await readFile(attemptPath, "utf8")) as {
+      readonly self_verification: { readonly final_response_claim: { readonly support: string } };
+      readonly failure_modes: readonly { readonly id: string; readonly severity: string }[];
+    };
+
+    expect(attempt.self_verification.final_response_claim.support).toBe("unsupported");
+    expect(attempt.failure_modes).toContainEqual(
+      expect.objectContaining({
+        id: "verification_claim_without_evidence",
+        severity: "warning",
+      }),
+    );
+  });
+
   it("keeps recovered agent errors as warning-only quality signals", async () => {
     const fixture = await createFixture({ recoveredAgentError: true });
 
@@ -308,6 +379,9 @@ async function createFixture(
     readonly modelAttempts?: number;
     readonly noFileChanges?: boolean;
     readonly recoveredAgentError?: boolean;
+    readonly selfVerification?: boolean;
+    readonly testFileChange?: boolean;
+    readonly unsupportedVerificationClaim?: boolean;
     readonly zeroTokenUsage?: boolean;
   } = {},
 ): Promise<{
@@ -351,11 +425,13 @@ fs.writeFileSync(observationPath, JSON.stringify({ status: JSON.parse(fs.readFil
 fs.mkdirSync("src", { recursive: true });
 ${options.assertAgentExclusion ? 'if (fs.existsSync("secret/agent-hidden.txt")) { process.stderr.write("excluded file visible to agent\\n"); process.exit(2); }' : ""}
 ${options.noFileChanges ? "" : 'fs.writeFileSync("src/generated.txt", "generated\\\\n");'}
+${options.testFileChange ? 'fs.writeFileSync("src/generated.test.ts", "generated test\\n");' : ""}
 ${options.modifyExcludedPath ? 'fs.mkdirSync("secret", { recursive: true }); fs.writeFileSync("secret/agent-hidden.txt", "recreated by agent\\n");' : ""}
 console.log(JSON.stringify({ type: "agent_start" }));
 console.log(JSON.stringify({ type: "tool_execution_start", toolName: "write" }));
 console.log(JSON.stringify({ type: "tool_execution_end", toolName: "write", isError: false }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }], ${options.recoveredAgentError ? 'errorMessage: "temporary provider error", ' : ""}usage: ${options.zeroTokenUsage ? "{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } }" : "{ input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7, cost: { total: 0.01 } }"} } }));
+${options.selfVerification ? 'console.log(JSON.stringify({ type: "tool_execution_start", toolCallId: "verify-1", toolName: "bash", args: { command: "node -e \\"process.exit(0)\\"" } }));\nconsole.log(JSON.stringify({ type: "tool_execution_end", toolCallId: "verify-1", toolName: "bash", result: { content: [{ type: "text", text: "ok" }] }, isError: false }));' : ""}
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: ${JSON.stringify(options.selfVerification ? "I ran typecheck and it passed." : options.unsupportedVerificationClaim ? "All tests pass." : "done")} }], ${options.recoveredAgentError ? 'errorMessage: "temporary provider error", ' : ""}usage: ${options.zeroTokenUsage ? "{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } }" : "{ input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7, cost: { total: 0.01 } }"} } }));
 console.log(JSON.stringify({ type: "agent_end", messages: [] }));
 `,
     "utf8",
@@ -365,7 +441,29 @@ console.log(JSON.stringify({ type: "agent_end", messages: [] }));
     root,
     configSubdir: "config",
     projectRepo: repoPath,
-    environment: { validate: ["node --version"] },
+    environment: options.selfVerification
+      ? {
+          validate: {
+            required: ["node --version"],
+            advisory: ['node -e "process.exit(0)"'],
+          },
+        }
+      : { validate: ["node --version"] },
+    ...(options.selfVerification
+      ? {
+          verification: {
+            checks: [
+              {
+                id: "typecheck",
+                kind: "typecheck",
+                label: "Typecheck",
+                match: { tool: "bash", command_contains: 'node -e "process.exit(0)"' },
+                baseline_command: 'node -e "process.exit(0)"',
+              },
+            ],
+          },
+        }
+      : {}),
     ...(options.modelAttempts === undefined
       ? {}
       : { runner: { model_attempts: options.modelAttempts } }),

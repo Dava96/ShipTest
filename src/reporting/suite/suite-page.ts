@@ -15,6 +15,7 @@ import {
   renderMetricCards,
   renderOutcomeMatrix,
   renderRunInsightCards,
+  renderSelfVerificationOverview,
   speedBars,
 } from "../html-report-components.js";
 import { reportScripts } from "../html-report-scripts.js";
@@ -46,6 +47,7 @@ ${reportStyles}
       { label: "Matrix", href: "#outcome-matrix", active: true },
       { label: "Models", href: modelsOverviewReportPath() },
       { label: "Charts", href: "#model-comparison" },
+      { label: "Workflow", href: "#self-verification" },
       { label: "Benchmarks", href: "#benchmarks" },
       { label: "Artifacts", href: "#artifacts" },
     ],
@@ -92,6 +94,11 @@ ${reportStyles}
   <section id="run-insights">
     <div class="section-head"><div class="section-title">Run signals</div><div class="muted small">At-a-glance quality, reliability, and risk indicators for this suite.</div></div>
     ${renderRunInsightCards(results, attempts)}
+  </section>
+
+  <section id="self-verification">
+    <div class="section-head"><div class="section-title">Agent workflow & reviewer insights</div><div class="muted small">Self-verification is based on observed agent tool calls. Baseline-backed checks are tied to commands doctor saw pass before agent attempts.</div></div>
+    ${renderSelfVerificationOverview(attempts)}
   </section>
 
   <section id="benchmarks">

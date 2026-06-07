@@ -7,7 +7,13 @@ environment:
     - npm ci
     - npm run check:fix
   validate:
-    - node --version
+    required:
+      - node --version
+    advisory:
+      - npm run check
+      - npm run typecheck
+      - npm run test:run
+      - npm run build
 runner:
   concurrency: 20
   model_attempts: 1
@@ -40,6 +46,36 @@ reporting:
           match:
             tool: bash
             command_contains: npm run build
+verification:
+  checks:
+    - id: tests
+      kind: tests
+      label: Tests
+      match:
+        tool: bash
+        command_contains: npm run test:run
+      baseline_command: npm run test:run
+    - id: typecheck
+      kind: typecheck
+      label: Typecheck
+      match:
+        tool: bash
+        command_contains: npm run typecheck
+      baseline_command: npm run typecheck
+    - id: build
+      kind: build
+      label: Build
+      match:
+        tool: bash
+        command_contains: npm run build
+      baseline_command: npm run build
+    - id: lint
+      kind: lint
+      label: Lint/static checks
+      match:
+        tool: bash
+        command_contains: npm run check
+      baseline_command: npm run check
 models:
   provider: openai-codex
   include:
