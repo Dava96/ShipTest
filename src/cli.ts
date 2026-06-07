@@ -21,6 +21,7 @@ import { createRunPlan, formatRunPlan } from "./run/plan.js";
 import { regenerateReport, runShiptest } from "./run/run.js";
 import { createSnapshotManifest } from "./snapshot/manifest.js";
 import type { Submission } from "./submission/types.js";
+import { formatVerifierLintResult, lintVerifier } from "./verifier-lint/lint-verifier.js";
 
 const program = new Command();
 
@@ -211,6 +212,32 @@ program
         }
       }
       process.exitCode = result.ok ? 0 : 1;
+    },
+  );
+
+program
+  .command("lint-verifier")
+  .description("Run advisory QA checks for configured hidden verifiers")
+  .option("-c, --config <path>", "Path to shiptest.yaml")
+  .option("--benchmark <ids...>", "Benchmark id filter; supports comma-separated values")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      readonly benchmark?: string[];
+      readonly config?: string;
+      readonly json?: boolean;
+    }) => {
+      const context = await loadShiptestConfigContext(options.config);
+      const benchmarkIds = parseListOption(options.benchmark);
+      const result = await lintVerifier(context, {
+        ...(benchmarkIds ? { benchmarkIds } : {}),
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatVerifierLintResult(result));
+      }
     },
   );
 

@@ -141,5 +141,15 @@ export type {
   WorkspaceManifestDiff,
   WorkspaceManifestFileChange,
 } from "./submission/types.js";
+export { VerifierLintCheckCode } from "./verifier-lint/check-codes.js";
+export { formatVerifierLintResult, lintVerifier } from "./verifier-lint/lint-verifier.js";
+export type {
+  VerifierLintBenchmarkResult,
+  VerifierLintCheck,
+  VerifierLintChecklistItem,
+  VerifierLintCheckSeverity,
+  VerifierLintResult,
+  VerifierLintStatus,
+} from "./verifier-lint/types.js";
 
 export const SHIPTEST_PROJECT_NAME = "ShipTest" as const;
